@@ -1,0 +1,13 @@
+{
+  "name": "tls-tcp-fuzzer",
+  "version": "1.0.0",
+  "description": "TLS/TCP Protocol Fuzzer - Test middlebox and TLS implementation behavior with crafted packets",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "cli": "node cli.js"
+  },
+  "devDependencies": {
+    "electron": "^33.0.0"
+  }
+}

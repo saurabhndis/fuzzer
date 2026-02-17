@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'">
+  <title>TLS/TCP Protocol Fuzzer</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="app">
+    <header class="header">
+      <h1>TLS/TCP Protocol Fuzzer</h1>
+      <span class="header-status" id="statusBadge">IDLE</span>
+    </header>
+
+    <div class="toolbar">
+      <div class="toolbar-group">
+        <label>Mode</label>
+        <select id="modeSelect">
+          <option value="client">Client</option>
+          <option value="server">Server</option>
+        </select>
+      </div>
+      <div class="toolbar-group" id="hostGroup">
+        <label>Host</label>
+        <input type="text" id="hostInput" placeholder="e.g. google.com" value="google.com">
+      </div>
+      <div class="toolbar-group">
+        <label>Port</label>
+        <input type="number" id="portInput" placeholder="443" value="443" min="1" max="65535">
+      </div>
+      <div class="toolbar-group">
+        <label>Delay (ms)</label>
+        <input type="number" id="delayInput" value="100" min="0" max="10000">
+      </div>
+      <div class="toolbar-group">
+        <label>Timeout (ms)</label>
+        <input type="number" id="timeoutInput" value="5000" min="500" max="60000">
+      </div>
+      <div class="toolbar-group">
+        <label class="checkbox-label">
+          <input type="checkbox" id="verboseCheck"> Verbose
+        </label>
+      </div>
+    </div>
+
+    <div class="main-layout">
+      <!-- Left: Scenarios -->
+      <div class="scenarios-panel">
+        <div class="panel-header">
+          <h2>Scenarios</h2>
+          <div class="scenario-controls">
+            <button id="selectAllBtn" class="btn-small">Select All</button>
+            <button id="selectNoneBtn" class="btn-small">None</button>
+          </div>
+        </div>
+        <div class="scenarios-list" id="scenariosList">
+          <!-- Populated by JS -->
+        </div>
+      </div>
+
+      <!-- Right: Controls + Results -->
+      <div class="right-panel">
+        <div class="controls-bar">
+          <button id="runBtn" class="btn btn-run">RUN SELECTED</button>
+          <button id="stopBtn" class="btn btn-stop" disabled>STOP</button>
+          <div class="pcap-controls">
+            <button id="pcapBtn" class="btn btn-pcap">PCAP: OFF</button>
+            <span id="pcapPath" class="pcap-path"></span>
+          </div>
+          <div class="progress-bar-container" id="progressContainer" style="display:none;">
+            <div class="progress-bar" id="progressBar"></div>
+            <span class="progress-text" id="progressText"></span>
+          </div>
+        </div>
+
+        <!-- Results Table -->
+        <div class="results-panel">
+          <div class="panel-header">
+            <h2>Results</h2>
+            <div class="result-actions">
+              <button id="exportJsonBtn" class="btn-small" disabled>Export JSON</button>
+              <button id="clearResultsBtn" class="btn-small">Clear</button>
+            </div>
+          </div>
+          <div class="results-table-wrap">
+            <table class="results-table" id="resultsTable">
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>Scenario</th>
+                  <th>Category</th>
+                  <th>Status</th>
+                  <th>Health</th>
+                  <th>Finding</th>
+                  <th>Verdict</th>
+                  <th>Response</th>
+                </tr>
+              </thead>
+              <tbody id="resultsBody">
+              </tbody>
+            </table>
+            <div class="results-empty" id="resultsEmpty">No results yet. Select scenarios and click RUN.</div>
+          </div>
+        </div>
+
+        <!-- Packet Log -->
+        <div class="packet-panel">
+          <div class="panel-header">
+            <h2>Live Packet Log</h2>
+            <button id="clearLogBtn" class="btn-small">Clear</button>
+          </div>
+          <div class="packet-log" id="packetLog">
+            <div class="log-empty">Waiting for packets...</div>
+          </div>
+        </div>
+
+        <!-- Summary -->
+        <div class="summary-bar" id="summaryBar" style="display:none;">
+          <span id="summaryText"></span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
