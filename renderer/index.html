@@ -4,13 +4,13 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'">
-  <title>TLS/TCP Protocol Fuzzer</title>
+  <title>Protocol Fuzzer</title>
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
   <div class="app">
     <header class="header">
-      <h1>TLS/TCP Protocol Fuzzer</h1>
+      <h1>Protocol Fuzzer</h1>
       <span class="header-status" id="statusBadge">IDLE</span>
     </header>
 
@@ -43,13 +43,46 @@
           <input type="checkbox" id="verboseCheck"> Verbose
         </label>
       </div>
+      <div class="toolbar-group">
+        <label class="checkbox-label">
+          <input type="checkbox" id="distributedCheck"> Distributed
+        </label>
+      </div>
+    </div>
+
+    <!-- Distributed Mode Bar -->
+    <div class="distributed-bar" id="distributedBar" style="display:none;">
+      <div class="agent-section">
+        <span class="agent-label">Client Agent</span>
+        <input type="text" id="clientAgentHost" class="agent-input" placeholder="host / IP" value="localhost">
+        <input type="number" id="clientAgentPort" class="agent-port-input" placeholder="9100" value="9100" min="1" max="65535">
+        <span class="agent-status-dot agent-idle" id="clientStatusDot"></span>
+        <span class="agent-status-text" id="clientStatusText">IDLE</span>
+      </div>
+      <div class="agent-section">
+        <span class="agent-label">Server Agent</span>
+        <input type="text" id="serverAgentHost" class="agent-input" placeholder="host / IP" value="localhost">
+        <input type="number" id="serverAgentPort" class="agent-port-input" placeholder="9101" value="9101" min="1" max="65535">
+        <span class="agent-status-dot agent-idle" id="serverStatusDot"></span>
+        <span class="agent-status-text" id="serverStatusText">IDLE</span>
+      </div>
+      <div class="agent-actions">
+        <button id="connectBtn" class="btn btn-connect">CONNECT</button>
+        <button id="disconnectBtn" class="btn btn-disconnect" disabled>DISCONNECT</button>
+      </div>
     </div>
 
     <div class="main-layout">
       <!-- Left: Scenarios -->
       <div class="scenarios-panel">
         <div class="panel-header">
-          <h2>Scenarios</h2>
+          <div class="panel-title-row">
+            <h2>Scenarios</h2>
+            <div class="protocol-tabs">
+              <button class="tab-btn active" id="tlsTabBtn" data-protocol="tls">TLS</button>
+              <button class="tab-btn" id="http2TabBtn" data-protocol="h2">HTTP/2</button>
+            </div>
+          </div>
           <div class="scenario-controls">
             <button id="selectAllBtn" class="btn-small">Select All</button>
             <button id="selectNoneBtn" class="btn-small">None</button>

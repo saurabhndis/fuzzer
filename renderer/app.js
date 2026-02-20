@@ -30,6 +30,22 @@
   const summaryBar = document.getElementById('summaryBar');
   const summaryText = document.getElementById('summaryText');
   const statusBadge = document.getElementById('statusBadge');
+  const distributedCheck = document.getElementById('distributedCheck');
+  const distributedBar = document.getElementById('distributedBar');
+  const clientAgentHost = document.getElementById('clientAgentHost');
+  const clientAgentPort = document.getElementById('clientAgentPort');
+  const serverAgentHost = document.getElementById('serverAgentHost');
+  const serverAgentPort = document.getElementById('serverAgentPort');
+  const clientStatusDot = document.getElementById('clientStatusDot');
+  const clientStatusText = document.getElementById('clientStatusText');
+  const serverStatusDot = document.getElementById('serverStatusDot');
+  const serverStatusText = document.getElementById('serverStatusText');
+  const connectBtn = document.getElementById('connectBtn');
+  const disconnectBtn = document.getElementById('disconnectBtn');
+
+  // Protocol tab elements
+  const tlsTabBtn = document.getElementById('tlsTabBtn');
+  const http2TabBtn = document.getElementById('http2TabBtn');
 
   // State
   let running = false;
@@ -37,15 +53,174 @@
   let results = [];
   let allScenarios = {};
   let categories = {};
+  let defaultDisabled = new Set();
+  let allH2Scenarios = {};
+  let h2Categories = {};
+  let h2DefaultDisabled = new Set();
+  let activeProtocol = 'tls'; // 'tls' | 'h2'
   let unsubPacket = null;
   let unsubResult = null;
   let unsubProgress = null;
   let unsubReport = null;
   let lastReport = null;
+  let distributedMode = false;
+  let agentsConnected = false;
+  let unsubAgentDone = null;
+  let unsubAgentStatus = null;
+  let statusPollTimer = null;
 
   // Mode toggle — hide host for server mode
   modeSelect.addEventListener('change', () => {
-    hostGroup.style.display = modeSelect.value === 'server' ? 'none' : 'flex';
+    if (!distributedMode) {
+      hostGroup.style.display = modeSelect.value === 'server' ? 'none' : 'flex';
+    }
+    filterScenariosBySide();
+  });
+
+  // Distributed mode toggle
+  distributedCheck.addEventListener('change', () => {
+    distributedMode = distributedCheck.checked;
+    distributedBar.style.display = distributedMode ? 'flex' : 'none';
+    if (distributedMode) {
+      // In distributed mode, show all scenarios (both sides)
+      modeSelect.disabled = true;
+      hostGroup.style.display = 'none';
+      renderAllScenarios();
+    } else {
+      modeSelect.disabled = false;
+      hostGroup.style.display = modeSelect.value === 'server' ? 'none' : 'flex';
+      if (agentsConnected) {
+        handleDisconnect();
+      }
+      renderScenarios();
+    }
+  });
+
+  // Connect to remote agents
+  connectBtn.addEventListener('click', handleConnect);
+  disconnectBtn.addEventListener('click', handleDisconnect);
+
+  async function handleConnect() {
+    const cHost = clientAgentHost.value.trim();
+    const cPort = clientAgentPort.value.trim();
+    const sHost = serverAgentHost.value.trim();
+    const sPort = serverAgentPort.value.trim();
+
+    if (!cHost && !sHost) {
+      addLogEntry('error', 'Enter at least one agent address');
+      return;
+    }
+
+    setAgentStatus('client', 'connecting');
+    setAgentStatus('server', 'connecting');
+    connectBtn.disabled = true;
+
+    try {
+      const result = await window.fuzzer.distributedConnect({
+        clientHost: cHost || null,
+        clientPort: cPort || null,
+        serverHost: sHost || null,
+        serverPort: sPort || null,
+      });
+
+      if (result.client) {
+        setAgentStatus('client', result.client.status || 'idle');
+        addLogEntry('info', `Client agent connected: ${cHost}:${cPort} (${result.client.status})`);
+      } else if (result.clientError) {
+        setAgentStatus('client', 'error');
+        addLogEntry('error', `Client agent: ${result.clientError}`);
+      } else if (!cHost) {
+        setAgentStatus('client', 'idle');
+      }
+
+      if (result.server) {
+        setAgentStatus('server', result.server.status || 'idle');
+        addLogEntry('info', `Server agent connected: ${sHost}:${sPort} (${result.server.status})`);
+      } else if (result.serverError) {
+        setAgentStatus('server', 'error');
+        addLogEntry('error', `Server agent: ${result.serverError}`);
+      } else if (!sHost) {
+        setAgentStatus('server', 'idle');
+      }
+
+      const anyConnected = result.client || result.server;
+      if (anyConnected) {
+        agentsConnected = true;
+        disconnectBtn.disabled = false;
+        clientAgentHost.disabled = true;
+        clientAgentPort.disabled = true;
+        serverAgentHost.disabled = true;
+        serverAgentPort.disabled = true;
+        startStatusPolling();
+      } else {
+        connectBtn.disabled = false;
+      }
+    } catch (err) {
+      addLogEntry('error', `Connect failed: ${err.message || err}`);
+      setAgentStatus('client', 'error');
+      setAgentStatus('server', 'error');
+      connectBtn.disabled = false;
+    }
+  }
+
+  async function handleDisconnect() {
+    stopStatusPolling();
+    try {
+      await window.fuzzer.distributedDisconnect();
+    } catch (_) {}
+    agentsConnected = false;
+    setAgentStatus('client', 'idle');
+    setAgentStatus('server', 'idle');
+    connectBtn.disabled = false;
+    disconnectBtn.disabled = true;
+    clientAgentHost.disabled = false;
+    clientAgentPort.disabled = false;
+    serverAgentHost.disabled = false;
+    serverAgentPort.disabled = false;
+    addLogEntry('info', 'Disconnected from agents');
+  }
+
+  function setAgentStatus(role, status) {
+    const dot = role === 'client' ? clientStatusDot : serverStatusDot;
+    const text = role === 'client' ? clientStatusText : serverStatusText;
+    dot.className = `agent-status-dot agent-${status}`;
+    text.textContent = status.toUpperCase();
+  }
+
+  function startStatusPolling() {
+    stopStatusPolling();
+    statusPollTimer = setInterval(async () => {
+      if (!agentsConnected) return;
+      try {
+        const cStatus = await window.fuzzer.distributedStatus('client');
+        if (cStatus && !cStatus.error) setAgentStatus('client', cStatus.status);
+        const sStatus = await window.fuzzer.distributedStatus('server');
+        if (sStatus && !sStatus.error) setAgentStatus('server', sStatus.status);
+      } catch (_) {}
+    }, 3000);
+  }
+
+  function stopStatusPolling() {
+    if (statusPollTimer) {
+      clearInterval(statusPollTimer);
+      statusPollTimer = null;
+    }
+  }
+
+  // Protocol tab switching
+  tlsTabBtn.addEventListener('click', () => {
+    if (activeProtocol === 'tls') return;
+    activeProtocol = 'tls';
+    tlsTabBtn.classList.add('active');
+    http2TabBtn.classList.remove('active');
+    filterScenariosBySide();
+  });
+
+  http2TabBtn.addEventListener('click', () => {
+    if (activeProtocol === 'h2') return;
+    activeProtocol = 'h2';
+    http2TabBtn.classList.add('active');
+    tlsTabBtn.classList.remove('active');
     filterScenariosBySide();
   });
 
@@ -54,12 +229,21 @@
     const data = await window.fuzzer.listScenarios();
     categories = data.categories;
     allScenarios = data.scenarios;
+    defaultDisabled = new Set(data.defaultDisabled || []);
+    h2Categories = data.h2Categories || {};
+    allH2Scenarios = data.h2Scenarios || {};
+    h2DefaultDisabled = new Set(data.h2DefaultDisabled || []);
     renderScenarios();
   }
 
   function renderScenarios() {
     scenariosList.innerHTML = '';
     const side = modeSelect.value;
+
+    if (activeProtocol === 'h2') {
+      renderH2Scenarios(side);
+      return;
+    }
 
     for (const [cat, label] of Object.entries(categories)) {
       const items = (allScenarios[cat] || []).filter(s => s.side === side);
@@ -70,7 +254,10 @@
 
       const header = document.createElement('div');
       header.className = 'category-header';
-      header.innerHTML = `<span class="arrow">&#9660;</span> ${cat}: ${label} <span class="count">${items.length}</span>`;
+      const disabledTag = defaultDisabled.has(cat)
+        ? ' <span class="opt-in-tag">server-side, opt-in</span>'
+        : '';
+      header.innerHTML = `<span class="arrow">&#9660;</span> ${cat}: ${label} <span class="count">${items.length}</span>${disabledTag}`;
 
       const itemsDiv = document.createElement('div');
       itemsDiv.className = 'category-items';
@@ -90,6 +277,163 @@
         cb.type = 'checkbox';
         cb.value = s.name;
         cb.dataset.side = s.side;
+        cb.dataset.category = cat;
+
+        const nameSpan = document.createElement('span');
+        nameSpan.className = 'name';
+        nameSpan.textContent = s.name;
+
+        const sideTag = document.createElement('span');
+        sideTag.className = `side-tag ${s.side}`;
+        sideTag.textContent = s.side;
+
+        item.appendChild(cb);
+        item.appendChild(nameSpan);
+        item.appendChild(sideTag);
+        itemsDiv.appendChild(item);
+      }
+
+      group.appendChild(header);
+      group.appendChild(itemsDiv);
+      scenariosList.appendChild(group);
+    }
+  }
+
+  // Helper: build a category group element for H2 scenarios
+  function _buildH2CategoryGroup(cat, label, items) {
+    const group = document.createElement('div');
+    group.className = 'category-group';
+
+    const header = document.createElement('div');
+    header.className = 'category-header';
+    header.innerHTML = `<span class="arrow">&#9660;</span> ${cat}: ${label} <span class="count">${items.length}</span>`;
+
+    const itemsDiv = document.createElement('div');
+    itemsDiv.className = 'category-items';
+
+    header.addEventListener('click', () => {
+      const arrow = header.querySelector('.arrow');
+      itemsDiv.classList.toggle('collapsed');
+      arrow.classList.toggle('collapsed');
+    });
+
+    for (const s of items) {
+      const item = document.createElement('label');
+      item.className = 'scenario-item';
+      item.title = s.description;
+
+      const cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.value = s.name;
+      cb.dataset.side = s.side;
+      cb.dataset.category = cat;
+      cb.dataset.protocol = 'h2';
+
+      const nameSpan = document.createElement('span');
+      nameSpan.className = 'name';
+      nameSpan.textContent = s.name;
+
+      const protoTag = document.createElement('span');
+      protoTag.className = 'side-tag h2-tag';
+      protoTag.textContent = 'h2';
+
+      const sideTag = document.createElement('span');
+      sideTag.className = `side-tag ${s.side}`;
+      sideTag.textContent = s.side;
+
+      item.appendChild(cb);
+      item.appendChild(nameSpan);
+      item.appendChild(protoTag);
+      item.appendChild(sideTag);
+      itemsDiv.appendChild(item);
+    }
+
+    group.appendChild(header);
+    group.appendChild(itemsDiv);
+    return group;
+  }
+
+  function renderH2Scenarios(side) {
+    scenariosList.innerHTML = '';
+
+    if (side === 'server') {
+      // Server mode: show info panel + AJ server-to-client attack scenarios
+      const info = document.createElement('div');
+      info.className = 'h2-server-info';
+      info.innerHTML = `
+        <div class="h2-server-icon">⚡</div>
+        <p class="h2-server-title">HTTP/2 Server Mode</p>
+        <p class="h2-server-desc">Select <strong>AJ</strong> server-to-client attack scenarios below, or click <strong>RUN</strong> with none selected to start a passive HTTP/2 server on port <strong>${portInput.value}</strong>.</p>
+        <p class="h2-server-desc">A connecting HTTP/2 client will trigger each selected scenario — the fuzzer acts as a malicious server.</p>
+      `;
+      scenariosList.appendChild(info);
+
+      // Show only server-side scenarios (AJ)
+      for (const [cat, label] of Object.entries(h2Categories)) {
+        const items = (allH2Scenarios[cat] || []).filter(s => s.side === 'server');
+        if (items.length === 0) continue;
+        scenariosList.appendChild(_buildH2CategoryGroup(cat, label, items));
+      }
+      return;
+    }
+
+    // Client mode: show all client-side HTTP/2 scenarios
+    for (const [cat, label] of Object.entries(h2Categories)) {
+      const items = (allH2Scenarios[cat] || []).filter(s => s.side === 'client');
+      if (items.length === 0) continue;
+      scenariosList.appendChild(_buildH2CategoryGroup(cat, label, items));
+    }
+  }
+
+  // Render all scenarios (both client and server) for distributed mode.
+  // Respects activeProtocol — shows TLS or H2 scenarios depending on the active tab.
+  function renderAllScenarios() {
+    scenariosList.innerHTML = '';
+
+    if (activeProtocol === 'h2') {
+      // Show all H2 scenarios (client + server sides)
+      for (const [cat, label] of Object.entries(h2Categories)) {
+        const items = allH2Scenarios[cat] || [];
+        if (items.length === 0) continue;
+        scenariosList.appendChild(_buildH2CategoryGroup(cat, label, items));
+      }
+      return;
+    }
+
+    // Show all TLS scenarios (client + server sides)
+    for (const [cat, label] of Object.entries(categories)) {
+      const items = allScenarios[cat] || [];
+      if (items.length === 0) continue;
+
+      const group = document.createElement('div');
+      group.className = 'category-group';
+
+      const header = document.createElement('div');
+      header.className = 'category-header';
+      const disabledTag = defaultDisabled.has(cat)
+        ? ' <span class="opt-in-tag">opt-in</span>'
+        : '';
+      header.innerHTML = `<span class="arrow">&#9660;</span> ${cat}: ${label} <span class="count">${items.length}</span>${disabledTag}`;
+
+      const itemsDiv = document.createElement('div');
+      itemsDiv.className = 'category-items';
+
+      header.addEventListener('click', () => {
+        const arrow = header.querySelector('.arrow');
+        itemsDiv.classList.toggle('collapsed');
+        arrow.classList.toggle('collapsed');
+      });
+
+      for (const s of items) {
+        const item = document.createElement('label');
+        item.className = 'scenario-item';
+        item.title = s.description;
+
+        const cb = document.createElement('input');
+        cb.type = 'checkbox';
+        cb.value = s.name;
+        cb.dataset.side = s.side;
+        cb.dataset.category = cat;
 
         const nameSpan = document.createElement('span');
         nameSpan.className = 'name';
@@ -112,7 +456,11 @@
   }
 
   function filterScenariosBySide() {
-    renderScenarios();
+    if (distributedMode) {
+      renderAllScenarios();
+    } else {
+      renderScenarios();
+    }
   }
 
   function getSelectedScenarios() {
@@ -122,7 +470,11 @@
 
   function setAllCheckboxes(checked) {
     const checkboxes = scenariosList.querySelectorAll('input[type="checkbox"]');
-    checkboxes.forEach(cb => { cb.checked = checked; });
+    const disabled = activeProtocol === 'h2' ? h2DefaultDisabled : defaultDisabled;
+    checkboxes.forEach(cb => {
+      if (checked && disabled.has(cb.dataset.category)) return;
+      cb.checked = checked;
+    });
   }
 
   selectAllBtn.addEventListener('click', () => setAllCheckboxes(true));
@@ -150,10 +502,8 @@
   runBtn.addEventListener('click', async () => {
     if (running) return;
 
-    const scenarioNames = getSelectedScenarios();
-    if (scenarioNames.length === 0) {
-      addLogEntry('error', 'No scenarios selected');
-      return;
+    if (distributedMode) {
+      return runDistributed();
     }
 
     const mode = modeSelect.value;
@@ -163,14 +513,31 @@
     const timeout = parseInt(timeoutInput.value, 10) || 5000;
     const verbose = verboseCheck.checked;
 
-    if (mode === 'client' && !host) {
-      addLogEntry('error', 'Please enter a hostname');
-      return;
-    }
     if (!port || port < 1 || port > 65535) {
       addLogEntry('error', 'Invalid port number');
       return;
     }
+
+    // HTTP/2 passive server mode: no scenarios needed (just starts the server)
+    const isH2PassiveServer = activeProtocol === 'h2' && mode === 'server' && getSelectedScenarios().length === 0;
+
+    if (!isH2PassiveServer) {
+      if (mode === 'client' && !host) {
+        addLogEntry('error', 'Please enter a hostname');
+        return;
+      }
+      if (activeProtocol !== 'h2' || mode !== 'server') {
+        // For non-server-mode or TLS, require at least one scenario
+        const scenarioNames = getSelectedScenarios();
+        if (scenarioNames.length === 0) {
+          addLogEntry('error', 'No scenarios selected');
+          return;
+        }
+      }
+    }
+
+    const scenarioNames = getSelectedScenarios();
+    const totalScenarios = scenarioNames.length || (isH2PassiveServer ? 1 : 0);
 
     setRunning(true);
     results = [];
@@ -178,9 +545,9 @@
     resultsEmpty.style.display = 'none';
     resultsTable.style.display = 'table';
     summaryBar.style.display = 'none';
-    progressContainer.style.display = 'flex';
+    progressContainer.style.display = isH2PassiveServer ? 'none' : 'flex';
     progressBar.style.width = '0%';
-    progressText.textContent = `0 / ${scenarioNames.length}`;
+    progressText.textContent = `0 / ${totalScenarios}`;
 
     // Subscribe to events
     unsubPacket = window.fuzzer.onPacket((evt) => {
@@ -204,6 +571,7 @@
         mode, host, port, scenarioNames, delay, timeout,
         pcapFile: pcapFile || null,
         verbose,
+        protocol: activeProtocol,
       });
 
       if (response.error) {
@@ -222,64 +590,200 @@
     }
   });
 
+  // Distributed run
+  async function runDistributed() {
+    if (!agentsConnected) {
+      addLogEntry('error', 'Connect to agents first');
+      return;
+    }
+
+    // Split selected scenarios by side
+    const checkboxes = scenariosList.querySelectorAll('input[type="checkbox"]:checked');
+    const clientScenarios = [];
+    const serverScenarios = [];
+    for (const cb of checkboxes) {
+      if (cb.dataset.side === 'client') clientScenarios.push(cb.value);
+      else if (cb.dataset.side === 'server') serverScenarios.push(cb.value);
+    }
+
+    if (clientScenarios.length === 0 && serverScenarios.length === 0) {
+      addLogEntry('error', 'No scenarios selected');
+      return;
+    }
+
+    const host = hostInput.value.trim() || 'localhost';
+    const port = parseInt(portInput.value, 10) || 443;
+    const delay = parseInt(delayInput.value, 10) || 100;
+    const timeout = parseInt(timeoutInput.value, 10) || 5000;
+
+    setRunning(true);
+    results = [];
+    resultsBody.innerHTML = '';
+    resultsEmpty.style.display = 'none';
+    resultsTable.style.display = 'table';
+    summaryBar.style.display = 'none';
+    progressContainer.style.display = 'flex';
+    progressBar.style.width = '0%';
+    const totalScenarios = clientScenarios.length + serverScenarios.length;
+    progressText.textContent = `0 / ${totalScenarios}`;
+
+    // Configure agents
+    addLogEntry('info', `Configuring agents: ${clientScenarios.length} client, ${serverScenarios.length} server scenarios`);
+
+    try {
+      const configResult = await window.fuzzer.distributedConfigure({
+        clientScenarios: clientScenarios.length > 0 ? clientScenarios : null,
+        serverScenarios: serverScenarios.length > 0 ? serverScenarios : null,
+        clientConfig: { host, port, delay, timeout, protocol: activeProtocol },
+        serverConfig: { hostname: host, port: parseInt(portInput.value, 10) || 4433, delay, timeout, protocol: activeProtocol },
+      });
+
+      if (configResult.error) {
+        addLogEntry('error', `Configure failed: ${configResult.error}`);
+        setRunning(false);
+        progressContainer.style.display = 'none';
+        return;
+      }
+
+      addLogEntry('info', 'Agents configured — both ready');
+      setAgentStatus('client', 'ready');
+      setAgentStatus('server', 'ready');
+    } catch (err) {
+      addLogEntry('error', `Configure failed: ${err.message || err}`);
+      setRunning(false);
+      progressContainer.style.display = 'none';
+      return;
+    }
+
+    // Subscribe to events
+    let agentsDone = { client: !clientScenarios.length, server: !serverScenarios.length };
+
+    unsubPacket = window.fuzzer.onPacket((evt) => {
+      const roleTag = evt.agentRole ? `[${evt.agentRole}] ` : '';
+      handlePacketEvent(evt, roleTag);
+    });
+
+    unsubResult = window.fuzzer.onResult((result) => {
+      handleResult(result);
+    });
+
+    unsubProgress = window.fuzzer.onProgress((prog) => {
+      handleProgress(prog);
+    });
+
+    unsubReport = window.fuzzer.onReport((report) => {
+      lastReport = report;
+    });
+
+    unsubAgentDone = window.fuzzer.onAgentDone((data) => {
+      agentsDone[data.role] = true;
+      setAgentStatus(data.role, 'done');
+      addLogEntry('info', `${data.role} agent finished`);
+
+      if (agentsDone.client && agentsDone.server) {
+        finishDistributedRun();
+      }
+    });
+
+    unsubAgentStatus = window.fuzzer.onAgentStatus((data) => {
+      setAgentStatus(data.role, data.status);
+    });
+
+    // Trigger execution
+    try {
+      addLogEntry('info', 'Starting distributed execution...');
+      const runResult = await window.fuzzer.distributedRun();
+      if (runResult.error) {
+        addLogEntry('error', `Run failed: ${runResult.error}`);
+        finishDistributedRun();
+      }
+    } catch (err) {
+      addLogEntry('error', `Run failed: ${err.message || err}`);
+      finishDistributedRun();
+    }
+  }
+
+  function finishDistributedRun() {
+    setRunning(false);
+    if (unsubPacket) { unsubPacket(); unsubPacket = null; }
+    if (unsubResult) { unsubResult(); unsubResult = null; }
+    if (unsubProgress) { unsubProgress(); unsubProgress = null; }
+    if (unsubReport) { unsubReport(); unsubReport = null; }
+    if (unsubAgentDone) { unsubAgentDone(); unsubAgentDone = null; }
+    if (unsubAgentStatus) { unsubAgentStatus(); unsubAgentStatus = null; }
+    progressContainer.style.display = 'none';
+    showSummary();
+  }
+
   // Stop
   stopBtn.addEventListener('click', async () => {
     if (!running) return;
-    await window.fuzzer.stop();
-    addLogEntry('info', 'Stop requested...');
+    if (distributedMode) {
+      await window.fuzzer.distributedStop();
+      addLogEntry('info', 'Stop requested for all agents...');
+      finishDistributedRun();
+    } else {
+      await window.fuzzer.stop();
+      addLogEntry('info', 'Stop requested...');
+    }
   });
 
   // Handle incoming packet events from the fuzzer
-  function handlePacketEvent(evt) {
+  function handlePacketEvent(evt, rolePrefix) {
+    const p = rolePrefix || '';
     switch (evt.type) {
       case 'scenario':
-        addLogEntry('scenario-name', `--- ${evt.name}: ${evt.description} ---`);
+        addLogEntry('scenario-name', `${p}--- ${evt.name}: ${evt.description} ---`);
         break;
       case 'sent':
-        addLogEntry('sent', `\u2192 ${evt.label || 'Sent'} (${evt.size} bytes)`);
+        addLogEntry('sent', `${p}\u2192 ${evt.label || 'Sent'} (${evt.size} bytes)`);
         if (evt.hex) addHexDump(evt.hex);
         break;
       case 'received':
-        addLogEntry('received', `\u2190 ${evt.description || 'Received'} (${evt.size} bytes)`);
+        addLogEntry('received', `${p}\u2190 ${evt.description || 'Received'} (${evt.size} bytes)`);
         if (evt.hex) addHexDump(evt.hex);
         break;
       case 'tcp':
-        addLogEntry('tcp', `[TCP] ${evt.direction === 'sent' ? '\u2192' : '\u2190'} ${evt.flag}`);
+        addLogEntry('tcp', `${p}[TCP] ${evt.direction === 'sent' ? '\u2192' : '\u2190'} ${evt.flag}`);
         break;
       case 'fuzz':
-        addLogEntry('fuzz', `[FUZZ] ${evt.message}`);
+        addLogEntry('fuzz', `${p}[FUZZ] ${evt.message}`);
         break;
       case 'info':
-        addLogEntry('info', evt.message);
+        addLogEntry('info', `${p}${evt.message}`);
         break;
       case 'error':
-        addLogEntry('error', evt.message);
+        addLogEntry('error', `${p}${evt.message}`);
         break;
       case 'result': {
         const cls = evt.status === 'PASSED' ? 'pass' : 'fail';
         const downStr = evt.hostDown ? ' [HOST DOWN]' : '';
-        addLogEntry(`result-line ${cls}`, `Result: ${evt.scenario} \u2014 ${evt.status} \u2014 ${evt.response}${downStr}`);
+        addLogEntry(`result-line ${cls}`, `${p}Result: ${evt.scenario} \u2014 ${evt.status} \u2014 ${evt.response}${downStr}`);
         break;
       }
       case 'host-down':
-        addLogEntry('host-down', `!! HOST DOWN — ${evt.host}:${evt.port} unreachable after "${evt.scenario}" — possible crash/DoS !!`);
+        addLogEntry('host-down', `${p}!! HOST DOWN — ${evt.host}:${evt.port} unreachable after "${evt.scenario}" — possible crash/DoS !!`);
         break;
       case 'health-probe': {
         const tcp = evt.probe.tcp;
         const ht = evt.probe.https;
         const tcpStr = tcp.alive ? `TCP OK (${tcp.latency}ms)` : `TCP FAIL (${tcp.error})`;
         const htStr = ht.alive ? `HTTPS OK (${ht.statusCode} ${ht.tlsVersion} ${ht.cipher} ${ht.latency}ms)` : `HTTPS FAIL (${ht.error})`;
-        addLogEntry('health-probe', `Health: ${tcpStr}  |  ${htStr}`);
+        addLogEntry('health-probe', `${p}Health: ${tcpStr}  |  ${htStr}`);
         break;
       }
       default:
-        addLogEntry('info', JSON.stringify(evt));
+        addLogEntry('info', `${p}${JSON.stringify(evt)}`);
     }
   }
 
-  // Look up scenario metadata from loaded data
+  // Look up scenario metadata from loaded data (TLS and HTTP/2)
   function findScenarioMeta(name) {
     for (const items of Object.values(allScenarios)) {
+      const found = items.find(s => s.name === name);
+      if (found) return found;
+    }
+    for (const items of Object.values(allH2Scenarios)) {
       const found = items.find(s => s.name === name);
       if (found) return found;
     }
@@ -459,12 +963,18 @@
     running = state;
     runBtn.disabled = state;
     stopBtn.disabled = !state;
-    modeSelect.disabled = state;
+    modeSelect.disabled = state || distributedMode;
     hostInput.disabled = state;
     portInput.disabled = state;
+    distributedCheck.disabled = state;
+
+    if (distributedMode) {
+      connectBtn.disabled = state || agentsConnected;
+      disconnectBtn.disabled = state || !agentsConnected;
+    }
 
     if (state) {
-      statusBadge.textContent = 'RUNNING';
+      statusBadge.textContent = distributedMode ? 'DISTRIBUTED RUN' : 'RUNNING';
       statusBadge.className = 'header-status running';
     }
   }

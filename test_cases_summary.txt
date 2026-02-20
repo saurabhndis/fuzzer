@@ -1,0 +1,410 @@
+## Category: Handshake Order Violations (Client)
+
+### out-of-order-finished-first
+- **Description**: Send Finished before ClientHello
+- **Side**: client
+
+### out-of-order-cke-before-hello
+- **Description**: Send ClientKeyExchange before ClientHello
+- **Side**: client
+
+### duplicate-client-hello
+- **Description**: Send ClientHello twice
+- **Side**: client
+
+### client-hello-after-finished
+- **Description**: Send ClientHello, receive ServerHello, then send another ClientHello
+- **Side**: client
+
+### skip-client-key-exchange
+- **Description**: ClientHello then jump straight to ChangeCipherSpec + Finished
+- **Side**: client
+
+## Category: Handshake Order Violations (Server)
+
+### server-hello-before-client-hello
+- **Description**: Server sends ServerHello immediately without waiting for ClientHello
+- **Side**: server
+
+### duplicate-server-hello
+- **Description**: Server sends ServerHello twice
+- **Side**: server
+
+### skip-server-hello-done
+- **Description**: Server omits ServerHelloDone
+- **Side**: server
+
+### certificate-before-server-hello
+- **Description**: Server sends Certificate before ServerHello
+- **Side**: server
+
+### double-server-hello-done
+- **Description**: Server sends ServerHelloDone twice
+- **Side**: server
+
+## Category: Parameter Mutation
+
+### version-downgrade-mid-handshake
+- **Description**: ClientHello says TLS 1.2, then CKE record header says TLS 1.0
+- **Side**: client
+
+### cipher-suite-mismatch
+- **Description**: Server selects a cipher suite not in client's offered list
+- **Side**: server
+
+### session-id-mutation
+- **Description**: Change session ID between handshake messages
+- **Side**: client
+
+### compression-method-mismatch
+- **Description**: Server picks DEFLATE compression when client only offered NULL
+- **Side**: server
+
+### sni-mismatch
+- **Description**: Send ClientHello with SNI "a.com", then another with SNI "b.com"
+- **Side**: client
+
+### random-overwrite
+- **Description**: Send identical ClientHello but with different random value
+- **Side**: client
+
+## Category: Alert Injection
+
+### alert-during-handshake
+- **Description**: Send warning alert between ClientHello and CKE
+- **Side**: client
+
+### fatal-alert-then-continue
+- **Description**: Send fatal alert then continue handshake as if nothing happened
+- **Side**: client
+
+### close-notify-mid-handshake
+- **Description**: Send close_notify then continue with more messages
+- **Side**: client
+
+### unknown-alert-type
+- **Description**: Send alert with undefined description code (255)
+- **Side**: client
+
+### alert-flood
+- **Description**: Rapid-fire 20 warning alerts
+- **Side**: client
+
+### alert-wrong-level
+- **Description**: Send handshake_failure with warning level instead of fatal
+- **Side**: client
+
+## Category: TCP Manipulation
+
+### fin-after-client-hello
+- **Description**: Send ClientHello, then TCP FIN, then try to continue
+- **Side**: client
+
+### fin-after-server-hello
+- **Description**: Server sends ServerHello then TCP FIN then continues
+- **Side**: server
+
+### rst-mid-handshake
+- **Description**: Send ClientHello, receive response, then TCP RST
+- **Side**: client
+
+### fin-from-both
+- **Description**: Server sends FIN immediately after ServerHello, simulating simultaneous FIN
+- **Side**: server
+
+### half-close-continue
+- **Description**: Half-close write side then send more TLS records
+- **Side**: client
+
+### slow-drip-client-hello
+- **Description**: Send ClientHello 1 byte at a time with delays
+- **Side**: client
+
+### split-record-across-segments
+- **Description**: Fragment a ClientHello TLS record across 10 TCP segments
+- **Side**: client
+
+## Category: Record Layer Attacks
+
+### oversized-record
+- **Description**: Send a TLS record > 16384 bytes
+- **Side**: client
+
+### zero-length-record
+- **Description**: Send a TLS record with empty payload
+- **Side**: client
+
+### wrong-content-type
+- **Description**: Send handshake data with application_data content type
+- **Side**: client
+
+### wrong-record-length
+- **Description**: TLS record length field doesn't match actual payload
+- **Side**: client
+
+### interleaved-content-types
+- **Description**: Mix handshake and application_data records during handshake
+- **Side**: client
+
+### record-version-mismatch
+- **Description**: Record header says TLS 1.0, ClientHello body says TLS 1.2
+- **Side**: client
+
+### multiple-handshakes-one-record
+- **Description**: Pack ClientHello + ClientKeyExchange in a single TLS record
+- **Side**: client
+
+### garbage-between-records
+- **Description**: Random garbage bytes between valid TLS records
+- **Side**: client
+
+## Category: ChangeCipherSpec Attacks
+
+### early-ccs
+- **Description**: Send ChangeCipherSpec before receiving ServerHelloDone
+- **Side**: client
+
+### multiple-ccs
+- **Description**: Send ChangeCipherSpec three times in a row
+- **Side**: client
+
+### ccs-before-client-hello
+- **Description**: Send ChangeCipherSpec as the very first message
+- **Side**: client
+
+### ccs-with-payload
+- **Description**: ChangeCipherSpec record with extra garbage bytes
+- **Side**: client
+
+## Category: Extension Fuzzing
+
+### duplicate-extensions
+- **Description**: ClientHello with the same extension type twice
+- **Side**: client
+
+### unknown-extensions
+- **Description**: ClientHello with unregistered extension type IDs
+- **Side**: client
+
+### oversized-extension
+- **Description**: ClientHello with a 64KB extension
+- **Side**: client
+
+### empty-sni
+- **Description**: ClientHello with empty SNI hostname
+- **Side**: client
+
+### malformed-supported-versions
+- **Description**: ClientHello with garbage data in supported_versions extension
+- **Side**: client
+
+## Category: Known Vulnerability Detection (CVEs)
+
+### heartbleed-cve-2014-0160
+- **Description**: Heartbleed: send heartbeat with oversized payload_length to leak memory
+- **Side**: client
+
+### poodle-sslv3-cve-2014-3566
+- **Description**: POODLE: attempt SSL 3.0 connection with CBC cipher
+- **Side**: client
+
+### ccs-injection-cve-2014-0224
+- **Description**: CCS Injection: send CCS before key exchange to force weak keys
+- **Side**: client
+
+### freak-export-rsa-cve-2015-0204
+- **Description**: FREAK: offer only RSA export cipher suites (512-bit keys)
+- **Side**: client
+
+### logjam-export-dhe-cve-2015-4000
+- **Description**: Logjam: offer only DHE export cipher suites (512-bit DH)
+- **Side**: client
+
+### drown-sslv2-cve-2016-0800
+- **Description**: DROWN: send SSLv2 ClientHello to check SSLv2 support
+- **Side**: client
+
+### sweet32-3des-cve-2016-2183
+- **Description**: Sweet32: offer only 3DES/64-bit block cipher suites
+- **Side**: client
+
+### crime-compression-cve-2012-4929
+- **Description**: CRIME: offer DEFLATE TLS compression to check if server accepts
+- **Side**: client
+
+### rc4-bias-cve-2013-2566
+- **Description**: RC4 Bias: offer only RC4 cipher suites
+- **Side**: client
+
+### beast-cbc-tls10-cve-2011-3389
+- **Description**: BEAST: offer TLS 1.0 with only CBC cipher suites
+- **Side**: client
+
+### insecure-renegotiation-cve-2009-3555
+- **Description**: Test for insecure TLS renegotiation by omitting renegotiation_info
+- **Side**: client
+
+### tls-fallback-scsv-downgrade
+- **Description**: Downgrade detection: send TLS 1.1 ClientHello with TLS_FALLBACK_SCSV
+- **Side**: client
+
+### null-cipher-suites
+- **Description**: Offer only NULL encryption cipher suites (no encryption)
+- **Side**: client
+
+### anon-dh-no-auth
+- **Description**: Offer only anonymous DH cipher suites (no server authentication)
+- **Side**: client
+
+### des-weak-cipher
+- **Description**: Offer only DES cipher (56-bit key, trivially breakable)
+- **Side**: client
+
+### ticketbleed-cve-2016-9244
+- **Description**: Ticketbleed: send session ticket with non-standard length to leak memory
+- **Side**: client
+
+## Category: Post-Quantum Cryptography (PQC)
+
+### pqc-hybrid-x25519-mlkem768
+- **Description**: Send ClientHello with X25519+ML-KEM-768 hybrid key share (1216 bytes)
+- **Side**: client
+
+### pqc-standalone-mlkem768
+- **Description**: Send ClientHello with standalone ML-KEM-768 key share (1184 bytes)
+- **Side**: client
+
+### pqc-kyber-draft-chrome
+- **Description**: Send ClientHello with X25519Kyber768 draft group ID (Chrome experimental)
+- **Side**: client
+
+### pqc-malformed-key-share
+- **Description**: Send PQC key share with wrong size (should be 1184, send 100)
+- **Side**: client
+
+### pqc-oversized-key-share
+- **Description**: Send enormously oversized PQC key share (10KB) to test buffer handling
+- **Side**: client
+
+### pqc-multiple-key-shares
+- **Description**: Send multiple PQC key shares: hybrid + standalone + classical
+- **Side**: client
+
+### pqc-unknown-group-ids
+- **Description**: Advertise only unregistered PQC named group IDs
+- **Side**: client
+
+### pqc-mlkem1024-large
+- **Description**: Send ML-KEM-1024 key share (1568 bytes, highest security level)
+- **Side**: client
+
+## Category: SNI Evasion & Fragmentation
+
+### sni-not-in-first-packet
+- **Description**: Fragment ClientHello so SNI hostname is in the 2nd TCP segment
+- **Side**: client
+
+### sni-split-at-hostname
+- **Description**: Split the ClientHello right in the middle of the SNI hostname string
+- **Side**: client
+
+### sni-tiny-fragments
+- **Description**: Fragment ClientHello into 1-byte TCP segments to evade SNI inspection
+- **Side**: client
+
+### sni-multiple-hostnames
+- **Description**: SNI extension with multiple server_name entries (different hostnames)
+- **Side**: client
+
+### sni-ip-address
+- **Description**: SNI extension with an IP address instead of hostname
+- **Side**: client
+
+### sni-oversized-hostname
+- **Description**: SNI with extremely long hostname (500 chars)
+- **Side**: client
+
+### sni-record-header-fragment
+- **Description**: Send only the 5-byte TLS record header first, then the rest
+- **Side**: client
+
+### sni-prepend-garbage-record
+- **Description**: Send a garbage TLS record before the real ClientHello to confuse parsers
+- **Side**: client
+
+## Category: ALPN Protocol Confusion
+
+### alpn-mismatch-server
+- **Description**: Server selects ALPN "h2" when client only offered "http/1.1"
+- **Side**: server
+
+### alpn-unknown-protocols
+- **Description**: ClientHello with ALPN listing unknown/invented protocol IDs
+- **Side**: client
+
+### alpn-empty-protocol
+- **Description**: ClientHello with ALPN containing empty protocol string
+- **Side**: client
+
+### alpn-oversized-list
+- **Description**: ClientHello with ALPN listing 50 protocol entries
+- **Side**: client
+
+### alpn-duplicate-protocols
+- **Description**: ClientHello with ALPN listing "h2" five times
+- **Side**: client
+
+### alpn-very-long-name
+- **Description**: ClientHello with ALPN protocol name of 255 bytes (max)
+- **Side**: client
+
+### alpn-wrong-list-length
+- **Description**: ALPN extension with protocol_name_list length exceeding actual data
+- **Side**: client
+
+## Category: Extension Malformation & Placement
+
+### ext-sni-wrong-length-short
+- **Description**: SNI extension with length field shorter than actual data
+- **Side**: client
+
+### ext-sni-wrong-length-long
+- **Description**: SNI extension with length field longer than actual data
+- **Side**: client
+
+### ext-truncated-key-share
+- **Description**: key_share extension truncated mid-key data
+- **Side**: client
+
+### ext-supported-versions-garbage
+- **Description**: supported_versions with odd-length (invalid version entries)
+- **Side**: client
+
+### ext-sig-algs-zero-length
+- **Description**: signature_algorithms extension with zero algorithms listed
+- **Side**: client
+
+### ext-extensions-total-length-mismatch
+- **Description**: Extensions block with total length not matching actual extension data
+- **Side**: client
+
+### ext-in-cke-message
+- **Description**: Embed ClientHello extensions inside a ClientKeyExchange message
+- **Side**: client
+
+### ext-nested-malformed-sni
+- **Description**: SNI extension with valid outer length but corrupted inner structure
+- **Side**: client
+
+### ext-all-unknown-critical
+- **Description**: ClientHello with only unregistered extension types and no required ones
+- **Side**: client
+
+### ext-groups-mismatch-key-share
+- **Description**: supported_groups lists X25519 but key_share provides P-384 key
+- **Side**: client
+
+### ext-encrypt-then-mac-with-aead
+- **Description**: Send encrypt_then_mac extension while only offering AEAD ciphers
+- **Side**: client
+

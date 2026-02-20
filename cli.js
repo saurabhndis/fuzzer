@@ -4,7 +4,8 @@
 const { FuzzerClient } = require('./lib/fuzzer-client');
 const { FuzzerServer } = require('./lib/fuzzer-server');
 const { Logger } = require('./lib/logger');
-const { listScenarios, getScenario, getScenariosByCategory, getClientScenarios, getServerScenarios } = require('./lib/scenarios');
+const { listScenarios, getScenario, getScenariosByCategory, getClientScenarios, getServerScenarios, CATEGORY_DEFAULT_DISABLED } = require('./lib/scenarios');
+const { generateServerCert } = require('./lib/cert-gen');
 
 const USAGE = `
   TLS/TCP Protocol Fuzzer
@@ -16,7 +17,8 @@ const USAGE = `
 
   Options:
     --scenario <name|all>   Run specific scenario or all
-    --category <A-M>        Run all scenarios in a category
+    --category <A-Y>        Run all scenarios in a category
+    --hostname <name>       Server cert CN/SAN (default: localhost)
     --delay <ms>            Delay between actions (default: 100)
     --timeout <ms>          Connection timeout (default: 5000)
     --verbose               Show hex dumps of all packets
@@ -62,7 +64,8 @@ async function main() {
     console.log('\n  TLS/TCP Fuzzer — Available Scenarios\n');
     for (const [cat, label] of Object.entries(categories)) {
       const items = scenarios[cat] || [];
-      console.log(`  \x1b[1m\x1b[35m${cat}: ${label}\x1b[0m (${items.length} scenarios)`);
+      const disabledNote = CATEGORY_DEFAULT_DISABLED.has(cat) ? ' \x1b[33m[opt-in]\x1b[0m' : '';
+      console.log(`  \x1b[1m\x1b[35m${cat}: ${label}\x1b[0m (${items.length} scenarios)${disabledNote}`);
       for (const s of items) {
         const side = s.side === 'client' ? '\x1b[36mclient\x1b[0m' : '\x1b[33mserver\x1b[0m';
         console.log(`    ${s.name.padEnd(40)} [${side}] \x1b[90m${s.description}\x1b[0m`);
@@ -95,7 +98,11 @@ async function main() {
         process.exit(1);
       }
     } else if (args.scenario === 'all') {
-      scenarios = getClientScenarios();
+      scenarios = getClientScenarios().filter(s => !CATEGORY_DEFAULT_DISABLED.has(s.category));
+      if (scenarios.length === 0) {
+        console.error('No enabled client scenarios found');
+        process.exit(1);
+      }
     } else if (args.scenario) {
       const s = getScenario(args.scenario);
       if (!s) {
@@ -147,7 +154,11 @@ async function main() {
     if (args.category) {
       scenarios = getScenariosByCategory(args.category).filter(s => s.side === 'server');
     } else if (args.scenario === 'all') {
-      scenarios = getServerScenarios();
+      scenarios = getServerScenarios().filter(s => !CATEGORY_DEFAULT_DISABLED.has(s.category));
+      if (scenarios.length === 0) {
+        console.error('No enabled server scenarios found');
+        process.exit(1);
+      }
     } else if (args.scenario) {
       const s = getScenario(args.scenario);
       if (!s) {
@@ -165,15 +176,31 @@ async function main() {
       process.exit(1);
     }
 
-    const server = new FuzzerServer({ port, timeout, delay, logger, pcapFile });
+    const hostname = args.hostname || 'localhost';
+    const certInfo = generateServerCert(hostname);
+    const fp = certInfo.fingerprint.match(/.{2}/g).join(':').toUpperCase();
+    logger.info(`Server certificate: CN=${hostname} | SHA256=${fp}`);
+
+    const server = new FuzzerServer({
+      port, hostname, timeout, delay, logger, pcapFile,
+      cert: certInfo.certDER,
+      certInfo,
+    });
 
     process.on('SIGINT', () => {
       server.abort();
       process.exit(0);
     });
 
-    const results = await server.runScenarios(scenarios);
-    process.exit(0);
+    const { results, report } = await server.runScenarios(scenarios);
+
+    if (pcapFile) {
+      logger.info(`PCAP saved to: ${pcapFile}`);
+    }
+
+    const hasErrors = results.some(r => r.status === 'ERROR');
+    const hasFails = report && report.stats.fail > 0;
+    process.exit(hasErrors || hasFails ? 1 : 0);
 
   } else {
     console.error(`Unknown command: ${command}`);

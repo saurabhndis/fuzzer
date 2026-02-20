@@ -5,7 +5,11 @@
   "main": "main.js",
   "scripts": {
     "start": "electron .",
-    "cli": "node cli.js"
+    "cli": "node cli.js",
+    "server": "node server.js",
+    "client": "node client.js",
+    "agent-client": "node client.js --agent",
+    "agent-server": "node server.js --agent"
   },
   "devDependencies": {
     "electron": "^33.0.0"

@@ -25,4 +25,23 @@ contextBridge.exposeInMainWorld('fuzzer', {
     ipcRenderer.on('fuzzer-report', listener);
     return () => ipcRenderer.removeListener('fuzzer-report', listener);
   },
+
+  // Distributed mode
+  distributedConnect: (opts) => ipcRenderer.invoke('distributed-connect', opts),
+  distributedConfigure: (opts) => ipcRenderer.invoke('distributed-configure', opts),
+  distributedRun: () => ipcRenderer.invoke('distributed-run'),
+  distributedStop: () => ipcRenderer.invoke('distributed-stop'),
+  distributedStatus: (role) => ipcRenderer.invoke('distributed-status', role),
+  distributedDisconnect: () => ipcRenderer.invoke('distributed-disconnect'),
+  distributedResults: (role) => ipcRenderer.invoke('distributed-results', role),
+  onAgentDone: (cb) => {
+    const listener = (_e, data) => cb(data);
+    ipcRenderer.on('distributed-agent-done', listener);
+    return () => ipcRenderer.removeListener('distributed-agent-done', listener);
+  },
+  onAgentStatus: (cb) => {
+    const listener = (_e, data) => cb(data);
+    ipcRenderer.on('distributed-agent-status', listener);
+    return () => ipcRenderer.removeListener('distributed-agent-status', listener);
+  },
 });
