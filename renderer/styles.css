@@ -977,3 +977,22 @@ body {
 ::-webkit-scrollbar-thumb:hover {
   background: var(--bg-hover);
 }
+
+/* QUIC Styles */
+.tab-btn[data-protocol="quic"].active {
+  background: #4c1d95;
+  color: #c4b5fd;
+}
+
+.side-tag.quic-tag {
+  background: rgba(196, 181, 253, 0.15);
+  color: #c4b5fd;
+}
+
+.quic-server-info {
+  border-color: #8b5cf6 !important;
+}
+
+.quic-server-info .h2-server-title {
+  color: #c4b5fd;
+}

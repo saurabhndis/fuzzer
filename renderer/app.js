@@ -46,6 +46,7 @@
   // Protocol tab elements
   const tlsTabBtn = document.getElementById('tlsTabBtn');
   const http2TabBtn = document.getElementById('http2TabBtn');
+  const quicTabBtn = document.getElementById('quicTabBtn');
 
   // State
   let running = false;
@@ -57,7 +58,10 @@
   let allH2Scenarios = {};
   let h2Categories = {};
   let h2DefaultDisabled = new Set();
-  let activeProtocol = 'tls'; // 'tls' | 'h2'
+  let allQuicScenarios = {};
+  let quicCategories = {};
+  let quicDefaultDisabled = new Set();
+  let activeProtocol = 'tls'; // 'tls' | 'h2' | 'quic'
   let unsubPacket = null;
   let unsubResult = null;
   let unsubProgress = null;
@@ -221,6 +225,16 @@
     activeProtocol = 'h2';
     http2TabBtn.classList.add('active');
     tlsTabBtn.classList.remove('active');
+    quicTabBtn.classList.remove('active');
+    filterScenariosBySide();
+  });
+
+  quicTabBtn.addEventListener('click', () => {
+    if (activeProtocol === 'quic') return;
+    activeProtocol = 'quic';
+    quicTabBtn.classList.add('active');
+    tlsTabBtn.classList.remove('active');
+    http2TabBtn.classList.remove('active');
     filterScenariosBySide();
   });
 
@@ -233,12 +247,20 @@
     h2Categories = data.h2Categories || {};
     allH2Scenarios = data.h2Scenarios || {};
     h2DefaultDisabled = new Set(data.h2DefaultDisabled || []);
+    quicCategories = data.quicCategories || {};
+    allQuicScenarios = data.quicScenarios || {};
+    quicDefaultDisabled = new Set(data.quicDefaultDisabled || []);
     renderScenarios();
   }
 
   function renderScenarios() {
     scenariosList.innerHTML = '';
     const side = modeSelect.value;
+
+    if (activeProtocol === 'quic') {
+      renderQuicScenarios(side);
+      return;
+    }
 
     if (activeProtocol === 'h2') {
       renderH2Scenarios(side);
@@ -299,8 +321,8 @@
     }
   }
 
-  // Helper: build a category group element for H2 scenarios
-  function _buildH2CategoryGroup(cat, label, items) {
+  // Helper: build a category group element for H2/QUIC scenarios
+  function _buildProtocolCategoryGroup(protocol, cat, label, items) {
     const group = document.createElement('div');
     group.className = 'category-group';
 
@@ -327,15 +349,15 @@
       cb.value = s.name;
       cb.dataset.side = s.side;
       cb.dataset.category = cat;
-      cb.dataset.protocol = 'h2';
+      cb.dataset.protocol = protocol;
 
       const nameSpan = document.createElement('span');
       nameSpan.className = 'name';
       nameSpan.textContent = s.name;
 
       const protoTag = document.createElement('span');
-      protoTag.className = 'side-tag h2-tag';
-      protoTag.textContent = 'h2';
+      protoTag.className = `side-tag ${protocol}-tag`;
+      protoTag.textContent = protocol;
 
       const sideTag = document.createElement('span');
       sideTag.className = `side-tag ${s.side}`;
@@ -351,6 +373,14 @@
     group.appendChild(header);
     group.appendChild(itemsDiv);
     return group;
+  }
+
+  function _buildH2CategoryGroup(cat, label, items) {
+    return _buildProtocolCategoryGroup('h2', cat, label, items);
+  }
+
+  function _buildQuicCategoryGroup(cat, label, items) {
+    return _buildProtocolCategoryGroup('quic', cat, label, items);
   }
 
   function renderH2Scenarios(side) {
@@ -385,10 +415,29 @@
     }
   }
 
+  function renderQuicScenarios(side) {
+    scenariosList.innerHTML = '';
+
+    for (const [cat, label] of Object.entries(quicCategories)) {
+      const items = (allQuicScenarios[cat] || []).filter(s => s.side === side);
+      if (items.length === 0) continue;
+      scenariosList.appendChild(_buildQuicCategoryGroup(cat, label, items));
+    }
+  }
+
   // Render all scenarios (both client and server) for distributed mode.
   // Respects activeProtocol — shows TLS or H2 scenarios depending on the active tab.
   function renderAllScenarios() {
     scenariosList.innerHTML = '';
+
+    if (activeProtocol === 'quic') {
+      for (const [cat, label] of Object.entries(quicCategories)) {
+        const items = allQuicScenarios[cat] || [];
+        if (items.length === 0) continue;
+        scenariosList.appendChild(_buildQuicCategoryGroup(cat, label, items));
+      }
+      return;
+    }
 
     if (activeProtocol === 'h2') {
       // Show all H2 scenarios (client + server sides)
@@ -470,7 +519,10 @@
 
   function setAllCheckboxes(checked) {
     const checkboxes = scenariosList.querySelectorAll('input[type="checkbox"]');
-    const disabled = activeProtocol === 'h2' ? h2DefaultDisabled : defaultDisabled;
+    let disabled = defaultDisabled;
+    if (activeProtocol === 'h2') disabled = h2DefaultDisabled;
+    if (activeProtocol === 'quic') disabled = quicDefaultDisabled;
+
     checkboxes.forEach(cb => {
       if (checked && disabled.has(cb.dataset.category)) return;
       cb.checked = checked;
@@ -518,15 +570,15 @@
       return;
     }
 
-    // HTTP/2 passive server mode: no scenarios needed (just starts the server)
-    const isH2PassiveServer = activeProtocol === 'h2' && mode === 'server' && getSelectedScenarios().length === 0;
+    // HTTP/2 or QUIC passive server mode: no scenarios needed (just starts the server)
+    const isPassiveServer = (activeProtocol === 'h2' || activeProtocol === 'quic') && mode === 'server' && getSelectedScenarios().length === 0;
 
-    if (!isH2PassiveServer) {
+    if (!isPassiveServer) {
       if (mode === 'client' && !host) {
         addLogEntry('error', 'Please enter a hostname');
         return;
       }
-      if (activeProtocol !== 'h2' || mode !== 'server') {
+      if ((activeProtocol !== 'h2' && activeProtocol !== 'quic') || mode !== 'server') {
         // For non-server-mode or TLS, require at least one scenario
         const scenarioNames = getSelectedScenarios();
         if (scenarioNames.length === 0) {
@@ -537,7 +589,7 @@
     }
 
     const scenarioNames = getSelectedScenarios();
-    const totalScenarios = scenarioNames.length || (isH2PassiveServer ? 1 : 0);
+    const totalScenarios = scenarioNames.length || (isPassiveServer ? 1 : 0);
 
     setRunning(true);
     results = [];
@@ -545,7 +597,7 @@
     resultsEmpty.style.display = 'none';
     resultsTable.style.display = 'table';
     summaryBar.style.display = 'none';
-    progressContainer.style.display = isH2PassiveServer ? 'none' : 'flex';
+    progressContainer.style.display = isPassiveServer ? 'none' : 'flex';
     progressBar.style.width = '0%';
     progressText.textContent = `0 / ${totalScenarios}`;
 
@@ -777,13 +829,17 @@
     }
   }
 
-  // Look up scenario metadata from loaded data (TLS and HTTP/2)
+  // Look up scenario metadata from loaded data (TLS, HTTP/2, QUIC)
   function findScenarioMeta(name) {
     for (const items of Object.values(allScenarios)) {
       const found = items.find(s => s.name === name);
       if (found) return found;
     }
     for (const items of Object.values(allH2Scenarios)) {
+      const found = items.find(s => s.name === name);
+      if (found) return found;
+    }
+    for (const items of Object.values(allQuicScenarios)) {
       const found = items.find(s => s.name === name);
       if (found) return found;
     }

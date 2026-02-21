@@ -5,6 +5,7 @@ const { UnifiedServer } = require('./lib/unified-server');
 const { Logger } = require('./lib/logger');
 const { listScenarios, getScenario, CATEGORY_DEFAULT_DISABLED } = require('./lib/scenarios');
 const { listHttp2Scenarios, getHttp2Scenario, HTTP2_CATEGORY_DEFAULT_DISABLED } = require('./lib/http2-scenarios');
+const { listQuicScenarios, getQuicScenario, QUIC_CATEGORY_DEFAULT_DISABLED } = require('./lib/quic-scenarios');
 const { computeOverallGrade } = require('./lib/grader');
 const { computeExpected } = require('./lib/compute-expected');
 const { Controller } = require('./lib/controller');
@@ -75,6 +76,23 @@ ipcMain.handle('list-scenarios', () => {
     });
   }
 
+  // QUIC scenarios
+  const { categories: quicCategories, scenarios: quicScenarios } = listQuicScenarios();
+  const quicStripped = {};
+  for (const [cat, items] of Object.entries(quicScenarios)) {
+    quicStripped[cat] = items.map(s => {
+      const computed = computeExpected(s);
+      return {
+        name: s.name,
+        category: s.category,
+        description: s.description,
+        side: s.side,
+        expected: s.expected || computed.expected,
+        expectedReason: s.expectedReason || computed.reason,
+      };
+    });
+  }
+
   return {
     categories,
     scenarios: stripped,
@@ -82,6 +100,9 @@ ipcMain.handle('list-scenarios', () => {
     h2Categories,
     h2Scenarios: h2Stripped,
     h2DefaultDisabled: [...HTTP2_CATEGORY_DEFAULT_DISABLED],
+    quicCategories,
+    quicScenarios: quicStripped,
+    quicDefaultDisabled: [...QUIC_CATEGORY_DEFAULT_DISABLED],
   };
 });
 
@@ -105,9 +126,12 @@ ipcMain.handle('run-fuzzer', async (event, opts) => {
 
   const results = [];
 
-  // Resolve scenario objects from names (try TLS lookup, then HTTP/2 lookup)
-  const lookup = (name) => (protocol === 'h2' ? getHttp2Scenario(name) : getScenario(name))
-    || getHttp2Scenario(name) || getScenario(name);
+  // Resolve scenario objects from names (try TLS lookup, then HTTP/2, then QUIC)
+  const lookup = (name) => {
+    if (protocol === 'quic') return getQuicScenario(name);
+    if (protocol === 'h2') return getHttp2Scenario(name);
+    return getScenario(name) || getHttp2Scenario(name) || getQuicScenario(name);
+  };
   const scenarios = (scenarioNames || []).map(lookup).filter(Boolean);
 
   // ── Client mode ───────────────────────────────────────────────────────────────

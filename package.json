@@ -12,6 +12,6 @@
     "agent-server": "node server.js --agent"
   },
   "devDependencies": {
-    "electron": "^33.0.0"
+    "electron": "^40.6.0"
   }
 }
