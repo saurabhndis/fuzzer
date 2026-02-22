@@ -48,6 +48,11 @@
           <input type="checkbox" id="distributedCheck"> Distributed
         </label>
       </div>
+      <div class="toolbar-group">
+        <label class="checkbox-label">
+          <input type="checkbox" id="dutCheck"> DUT
+        </label>
+      </div>
     </div>
 
     <!-- Distributed Mode Bar -->
@@ -69,6 +74,32 @@
       <div class="agent-actions">
         <button id="connectBtn" class="btn btn-connect">CONNECT</button>
         <button id="disconnectBtn" class="btn btn-disconnect" disabled>DISCONNECT</button>
+      </div>
+    </div>
+
+    <!-- DUT Configuration Bar -->
+    <div class="distributed-bar" id="dutBar" style="display:none; background: #1a1f26; border-bottom: 1px solid #30363d;">
+      <div class="agent-section">
+        <span class="agent-label">DUT IP</span>
+        <input type="text" id="dutIpInput" class="agent-input" placeholder="e.g. 192.168.1.1" value="">
+      </div>
+      <div class="agent-section">
+        <span class="agent-label">Auth</span>
+        <select id="dutAuthType" class="agent-input" style="width: 100px;">
+          <option value="none">None</option>
+          <option value="password">Password</option>
+          <option value="apikey">API Key</option>
+        </select>
+      </div>
+      <div class="agent-section" id="dutUserPassGroup" style="display:none;">
+        <span class="agent-label">User</span>
+        <input type="text" id="dutUserInput" class="agent-input" placeholder="admin" value="admin" style="width: 100px;">
+        <span class="agent-label">Pass</span>
+        <input type="password" id="dutPassInput" class="agent-input" placeholder="****" style="width: 100px;">
+      </div>
+      <div class="agent-section" id="dutApiKeyGroup" style="display:none;">
+        <span class="agent-label">API Key</span>
+        <input type="text" id="dutApiKeyInput" class="agent-input" placeholder="abc-123-xyz" style="width: 180px;">
       </div>
     </div>
 

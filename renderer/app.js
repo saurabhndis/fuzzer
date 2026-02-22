@@ -43,6 +43,17 @@
   const connectBtn = document.getElementById('connectBtn');
   const disconnectBtn = document.getElementById('disconnectBtn');
 
+  // DUT elements
+  const dutCheck = document.getElementById('dutCheck');
+  const dutBar = document.getElementById('dutBar');
+  const dutIpInput = document.getElementById('dutIpInput');
+  const dutAuthType = document.getElementById('dutAuthType');
+  const dutUserPassGroup = document.getElementById('dutUserPassGroup');
+  const dutApiKeyGroup = document.getElementById('dutApiKeyGroup');
+  const dutUserInput = document.getElementById('dutUserInput');
+  const dutPassInput = document.getElementById('dutPassInput');
+  const dutApiKeyInput = document.getElementById('dutApiKeyInput');
+
   // Protocol tab elements
   const tlsTabBtn = document.getElementById('tlsTabBtn');
   const http2TabBtn = document.getElementById('http2TabBtn');
@@ -98,6 +109,17 @@
       }
       renderScenarios();
     }
+  });
+
+  // DUT toggle
+  dutCheck.addEventListener('change', () => {
+    dutBar.style.display = dutCheck.checked ? 'flex' : 'none';
+  });
+
+  // DUT Auth toggle
+  dutAuthType.addEventListener('change', () => {
+    dutUserPassGroup.style.display = dutAuthType.value === 'password' ? 'flex' : 'none';
+    dutApiKeyGroup.style.display = dutAuthType.value === 'apikey' ? 'flex' : 'none';
   });
 
   // Connect to remote agents
@@ -240,20 +262,27 @@
 
   // Load scenarios
   async function loadScenarios() {
-    const data = await window.fuzzer.listScenarios();
-    categories = data.categories;
-    allScenarios = data.scenarios;
-    defaultDisabled = new Set(data.defaultDisabled || []);
-    h2Categories = data.h2Categories || {};
-    allH2Scenarios = data.h2Scenarios || {};
-    h2DefaultDisabled = new Set(data.h2DefaultDisabled || []);
-    quicCategories = data.quicCategories || {};
-    allQuicScenarios = data.quicScenarios || {};
-    quicDefaultDisabled = new Set(data.quicDefaultDisabled || []);
-    renderScenarios();
+    console.log('Loading scenarios...');
+    try {
+      const data = await window.fuzzer.listScenarios();
+      console.log('Scenarios data received:', data);
+      categories = data.categories;
+      allScenarios = data.scenarios;
+      defaultDisabled = new Set(data.defaultDisabled || []);
+      h2Categories = data.h2Categories || {};
+      allH2Scenarios = data.h2Scenarios || {};
+      h2DefaultDisabled = new Set(data.h2DefaultDisabled || []);
+      quicCategories = data.quicCategories || {};
+      allQuicScenarios = data.quicScenarios || {};
+      quicDefaultDisabled = new Set(data.quicDefaultDisabled || []);
+      renderScenarios();
+    } catch (err) {
+      console.error('Failed to load scenarios:', err);
+    }
   }
 
   function renderScenarios() {
+    console.log('Rendering scenarios for protocol:', activeProtocol, 'side:', modeSelect.value);
     scenariosList.innerHTML = '';
     const side = modeSelect.value;
 
@@ -565,6 +594,14 @@
     const timeout = parseInt(timeoutInput.value, 10) || 5000;
     const verbose = verboseCheck.checked;
 
+    const dut = dutCheck.checked ? {
+      ip: dutIpInput.value.trim(),
+      authType: dutAuthType.value,
+      user: dutUserInput.value.trim(),
+      pass: dutPassInput.value,
+      apiKey: dutApiKeyInput.value.trim(),
+    } : null;
+
     if (!port || port < 1 || port > 65535) {
       addLogEntry('error', 'Invalid port number');
       return;
@@ -624,6 +661,7 @@
         pcapFile: pcapFile || null,
         verbose,
         protocol: activeProtocol,
+        dut,
       });
 
       if (response.error) {
@@ -668,6 +706,14 @@
     const delay = parseInt(delayInput.value, 10) || 100;
     const timeout = parseInt(timeoutInput.value, 10) || 5000;
 
+    const dut = dutCheck.checked ? {
+      ip: dutIpInput.value.trim(),
+      authType: dutAuthType.value,
+      user: dutUserInput.value.trim(),
+      pass: dutPassInput.value,
+      apiKey: dutApiKeyInput.value.trim(),
+    } : null;
+
     setRunning(true);
     results = [];
     resultsBody.innerHTML = '';
@@ -686,8 +732,8 @@
       const configResult = await window.fuzzer.distributedConfigure({
         clientScenarios: clientScenarios.length > 0 ? clientScenarios : null,
         serverScenarios: serverScenarios.length > 0 ? serverScenarios : null,
-        clientConfig: { host, port, delay, timeout, protocol: activeProtocol },
-        serverConfig: { hostname: host, port: parseInt(portInput.value, 10) || 4433, delay, timeout, protocol: activeProtocol },
+        clientConfig: { host, port, delay, timeout, protocol: activeProtocol, dut },
+        serverConfig: { hostname: host, port: parseInt(portInput.value, 10) || 4433, delay, timeout, protocol: activeProtocol, dut },
       });
 
       if (configResult.error) {

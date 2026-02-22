@@ -108,7 +108,7 @@ ipcMain.handle('list-scenarios', () => {
 
 // Run fuzzer
 ipcMain.handle('run-fuzzer', async (event, opts) => {
-  const { mode, host, port, scenarioNames, delay, timeout, pcapFile, verbose, hostname, protocol } = opts;
+  const { mode, host, port, scenarioNames, delay, timeout, pcapFile, verbose, hostname, protocol, dut } = opts;
 
   const send = (channel, data) => {
     if (mainWindow && !mainWindow.isDestroyed()) {
@@ -147,6 +147,7 @@ ipcMain.handle('run-fuzzer', async (event, opts) => {
       host, port: portNum,
       timeout: timeout || 5000, delay: delay || 100,
       logger, pcapFile: pcapFile || null,
+      dut,
     });
 
     for (const scenario of scenarios) {
@@ -174,6 +175,7 @@ ipcMain.handle('run-fuzzer', async (event, opts) => {
       port: portNum, hostname: serverHostname,
       timeout: timeout || 10000, delay: delay || 100,
       logger, pcapFile: pcapFile || null,
+      dut,
     });
 
     const certInfo = activeServer.getCertInfo();
