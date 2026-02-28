@@ -104,7 +104,7 @@
 
     /* ── Sidebar ── */
     .sidebar {
-      width: 280px;
+      width: 240px;
       flex-shrink: 0;
       background: var(--surface);
       border-right: 1px solid var(--border);
@@ -646,7 +646,7 @@
   <div class="sidebar">
 
     <!-- Connection section -->
-    <div class="sidebar-section">
+    <div class="sidebar-section" style="display:none;">
       <div class="sidebar-section-title">Connection</div>
       <div class="field">
         <label>Firewall IP / Hostname</label>
@@ -666,7 +666,7 @@
     </div>
 
     <!-- Device info card -->
-    <div class="sidebar-section" id="deviceSection" style="display:none;">
+    <div class="sidebar-section" id="deviceSection" style="display:none !important;">
       <div class="sidebar-section-title">Device Info</div>
       <div class="device-card visible" id="deviceCard">
         <div class="device-card-row">
@@ -962,7 +962,6 @@
       $('di-uptime').textContent   = info.uptime;
       $('di-serial').textContent   = info.serial;
 
-      deviceSection.style.display = 'block';
       runCustomBtn.disabled = false;
       connectBtn.style.display = 'none';
       setStatus('connected', `Connected · ${info.hostname}`);
@@ -990,7 +989,6 @@
     state.connected = false;
     state.running = false;
 
-    deviceSection.style.display = 'none';
     connectBtn.disabled = false;
     connectBtn.style.display = '';
     connectBtn.innerHTML = 'Connect &amp; Get API Key';
@@ -1338,7 +1336,7 @@
           $('di-appver').textContent   = info.appVersion;
           $('di-uptime').textContent   = info.uptime;
           $('di-serial').textContent   = info.serial;
-          deviceSection.style.display = 'block';
+
           runCustomBtn.disabled = false;
           connectBtn.style.display = 'none';
           setStatus('connected', 'Connected · ' + info.hostname);
