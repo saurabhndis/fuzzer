@@ -36,6 +36,14 @@ function createWindow() {
   });
 
   mainWindow.loadFile(path.join(__dirname, 'renderer', 'index.html'));
+
+  mainWindow.on('closed', () => {
+    if (firewallWindow && !firewallWindow.isDestroyed()) {
+      firewallWindow.close();
+    }
+    firewallWindow = null;
+    mainWindow = null;
+  });
 }
 
 app.whenReady().then(createWindow);
