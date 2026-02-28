@@ -970,6 +970,8 @@
       toast(`Connected to ${info.hostname} (${info.model})`, 'success');
 
       // Auto-run system info
+      historyEntries.innerHTML = '';
+      rawOutput.textContent = '';
       const sysHtml = info.parsed ? autoFormat(info.parsed) : null;
       addHistoryEntry('<show><system><info></info></system></show>', 'System Info', info.formatted, true, sysHtml);
       rawOutput.textContent = info.raw;
@@ -1041,6 +1043,10 @@
     if (!state.connected || state.running) return;
     state.running = true;
     setStatus('loading', `Running: ${label}…`);
+
+    // Clear previous output
+    historyEntries.innerHTML = '';
+    rawOutput.textContent = 'Running...';
 
     runCustomBtn.disabled = true;
     runCustomBtn.innerHTML = '<span class="spinner"></span>';
@@ -1342,6 +1348,9 @@
           setStatus('connected', 'Connected · ' + info.hostname);
           buildCommandList();
           toast('Connected to ' + info.hostname + ' (' + info.model + ')', 'success');
+
+          historyEntries.innerHTML = '';
+          rawOutput.textContent = '';
           const sysHtml = info.parsed ? autoFormat(info.parsed) : null;
           addHistoryEntry('<show><system><info></info></system></show>', 'System Info', info.formatted, true, sysHtml);
           rawOutput.textContent = info.raw;
