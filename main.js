@@ -1,5 +1,8 @@
 const { app, BrowserWindow, ipcMain, dialog } = require('electron');
 const path = require('path');
+const https = require('https');
+const url = require('url');
+const xml2js = require('xml2js');
 const { UnifiedClient } = require('./lib/unified-client');
 const { UnifiedServer } = require('./lib/unified-server');
 const { Logger } = require('./lib/logger');
@@ -11,6 +14,7 @@ const { computeExpected } = require('./lib/compute-expected');
 const { Controller } = require('./lib/controller');
 
 let mainWindow;
+let firewallWindow = null;
 let activeClient = null;
 let activeServer = null;
 let controller = null;
@@ -420,4 +424,279 @@ ipcMain.handle('distributed-disconnect', () => {
     controller = null;
   }
   return { ok: true };
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Firewall (PAN-OS) Monitor — embedded from firewall project
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// Disable certificate validation for self-signed firewall certs
+process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
+
+function createFirewallWindow(dutConfig) {
+  if (firewallWindow && !firewallWindow.isDestroyed()) {
+    firewallWindow.focus();
+    return;
+  }
+
+  firewallWindow = new BrowserWindow({
+    width: 1200,
+    height: 800,
+    minWidth: 900,
+    minHeight: 600,
+    parent: mainWindow,
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: false,
+    },
+    backgroundColor: '#0f1117',
+    title: 'DUT Firewall Monitor',
+    show: false,
+  });
+
+  firewallWindow.loadFile(path.join(__dirname, 'renderer', 'firewall.html'));
+
+  firewallWindow.once('ready-to-show', () => {
+    firewallWindow.show();
+    // Send DUT config so the firewall UI can auto-connect
+    if (dutConfig && dutConfig.ip) {
+      firewallWindow.webContents.send('dut-config', dutConfig);
+    }
+  });
+
+  firewallWindow.on('closed', () => {
+    firewallWindow = null;
+  });
+}
+
+// Open/close firewall window from renderer
+ipcMain.handle('open-firewall', (_event, dutConfig) => {
+  createFirewallWindow(dutConfig);
+  return { ok: true };
+});
+
+ipcMain.handle('close-firewall', () => {
+  if (firewallWindow && !firewallWindow.isDestroyed()) {
+    firewallWindow.close();
+    firewallWindow = null;
+  }
+  return { ok: true };
+});
+
+// --- PAN-OS Utility: make an HTTPS request to the firewall ---
+function panosRequest(host, params) {
+  return new Promise((resolve, reject) => {
+    const postBody = new url.URLSearchParams(params).toString();
+    const options = {
+      hostname: host,
+      port: 443,
+      path: '/api/',
+      method: 'POST',
+      timeout: 15000,
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'Content-Length': Buffer.byteLength(postBody),
+      },
+    };
+
+    const req = https.request(options, (res) => {
+      let data = '';
+      res.on('data', (chunk) => { data += chunk; });
+      res.on('end', () => resolve(data));
+    });
+
+    req.on('timeout', () => {
+      req.destroy();
+      reject(new Error('Request timed out (15s). Check the IP and that the firewall is reachable.'));
+    });
+
+    req.on('error', (err) => {
+      if (err.code === 'ECONNREFUSED') {
+        reject(new Error(`Connection refused to ${host}:443. Verify the IP address and that HTTPS management is enabled.`));
+      } else if (err.code === 'ENOTFOUND') {
+        reject(new Error(`Host not found: ${host}. Check the IP address.`));
+      } else {
+        reject(new Error(`Network error: ${err.message}`));
+      }
+    });
+
+    req.write(postBody);
+    req.end();
+  });
+}
+
+// --- Parse PAN-OS XML response ---
+function parseXmlResponse(xmlString) {
+  const statusMatch = xmlString.match(/status\s*=\s*['"]([^'"]+)['"]/);
+  const status = statusMatch ? statusMatch[1] : 'unknown';
+
+  if (status === 'error') {
+    const msgMatch = xmlString.match(/<msg>([^<]+)<\/msg>/) ||
+                     xmlString.match(/<line>([^<]+)<\/line>/);
+    const msg = msgMatch ? msgMatch[1] : 'Unknown error from firewall';
+    throw new Error(`Firewall error: ${msg}`);
+  }
+
+  return { status, raw: xmlString };
+}
+
+// --- Extract API key from keygen response ---
+function extractApiKey(xmlString) {
+  const { status } = parseXmlResponse(xmlString);
+  if (status !== 'success') {
+    throw new Error('Authentication failed. Check your username and password.');
+  }
+  const keyMatch = xmlString.match(/<key>([^<]+)<\/key>/);
+  if (!keyMatch) throw new Error('Could not extract API key from response.');
+  return keyMatch[1];
+}
+
+// --- Pretty-print XML for display ---
+function formatXml(xmlString) {
+  try {
+    let indent = 0;
+    const lines = [];
+    let cleaned = xmlString
+      .replace(/<\?xml[^>]*\?>/g, '')
+      .replace(/>\s*</g, '>\n<')
+      .trim();
+
+    cleaned.split('\n').forEach((line) => {
+      line = line.trim();
+      if (!line) return;
+
+      if (line.match(/^<\/[^>]+>$/)) {
+        indent = Math.max(0, indent - 1);
+      }
+
+      lines.push('  '.repeat(indent) + line);
+
+      if (line.match(/^<[^/!][^>]*[^/]>$/) && !line.match(/<[^>]+>[^<]+<\/[^>]+>/)) {
+        indent++;
+      }
+    });
+
+    return lines.join('\n');
+  } catch {
+    return xmlString;
+  }
+}
+
+// --- Parse XML to JSON for structured rendering ---
+async function parseXmlToJson(xmlString) {
+  try {
+    return await xml2js.parseStringPromise(xmlString, {
+      explicitArray: false,
+      trim: true,
+      mergeAttrs: true,
+    });
+  } catch {
+    return null;
+  }
+}
+
+// --- PAN-OS IPC Handlers ---
+
+ipcMain.handle('panos:ping', async (_event, { host }) => {
+  const { exec } = require('child_process');
+  return new Promise((resolve) => {
+    const flag = process.platform === 'win32' ? '-n' : '-c';
+    exec(`ping ${flag} 2 -W 2 "${host}"`, { timeout: 10000 }, (error, stdout) => {
+      if (error) {
+        resolve({ reachable: false, output: stdout || error.message });
+      } else {
+        resolve({ reachable: true, output: stdout });
+      }
+    });
+  });
+});
+
+ipcMain.handle('panos:getApiKey', async (_event, { host, username, password }) => {
+  if (!host || !username || !password) {
+    throw new Error('Host, username, and password are required.');
+  }
+
+  const xml = await panosRequest(host, {
+    type: 'keygen',
+    user: username,
+    password: password,
+  });
+
+  const apiKey = extractApiKey(xml);
+  return { apiKey };
+});
+
+ipcMain.handle('panos:runCommand', async (_event, { host, apiKey, command }) => {
+  if (!host || !apiKey || !command) {
+    throw new Error('Host, API key, and command are required.');
+  }
+
+  const xml = await panosRequest(host, {
+    type: 'op',
+    cmd: command,
+    key: apiKey,
+  });
+
+  parseXmlResponse(xml);
+  const parsed = await parseXmlToJson(xml);
+
+  return {
+    raw: xml,
+    formatted: formatXml(xml),
+    parsed,
+  };
+});
+
+ipcMain.handle('panos:runConfig', async (_event, { host, apiKey, action, xpath }) => {
+  if (!host || !apiKey) {
+    throw new Error('Host and API key are required.');
+  }
+
+  const xml = await panosRequest(host, {
+    type: 'config',
+    action: action || 'show',
+    xpath: xpath || '/',
+    key: apiKey,
+  });
+
+  parseXmlResponse(xml);
+  const parsed = await parseXmlToJson(xml);
+
+  return {
+    raw: xml,
+    formatted: formatXml(xml),
+    parsed,
+  };
+});
+
+ipcMain.handle('panos:systemInfo', async (_event, { host, apiKey }) => {
+  const xml = await panosRequest(host, {
+    type: 'op',
+    cmd: '<show><system><info></info></system></show>',
+    key: apiKey,
+  });
+
+  parseXmlResponse(xml);
+
+  const extract = (tag) => {
+    const m = xml.match(new RegExp(`<${tag}>([^<]+)</${tag}>`));
+    return m ? m[1] : 'N/A';
+  };
+
+  const parsed = await parseXmlToJson(xml);
+
+  return {
+    hostname: extract('hostname'),
+    model: extract('model'),
+    serial: extract('serial'),
+    swVersion: extract('sw-version'),
+    appVersion: extract('app-version'),
+    uptime: extract('uptime'),
+    ipAddress: extract('ip-address'),
+    raw: xml,
+    formatted: formatXml(xml),
+    parsed,
+  };
 });

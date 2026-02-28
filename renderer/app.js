@@ -54,6 +54,7 @@
   const dutUserInput = document.getElementById('dutUserInput');
   const dutPassInput = document.getElementById('dutPassInput');
   const dutApiKeyInput = document.getElementById('dutApiKeyInput');
+  const firewallBtn = document.getElementById('firewallBtn');
 
   // Protocol tab elements
   const tlsTabBtn = document.getElementById('tlsTabBtn');
@@ -121,6 +122,18 @@
   dutAuthType.addEventListener('change', () => {
     dutUserPassGroup.style.display = dutAuthType.value === 'password' ? 'flex' : 'none';
     dutApiKeyGroup.style.display = dutAuthType.value === 'apikey' ? 'flex' : 'none';
+  });
+
+  // Open firewall monitor manually
+  firewallBtn.addEventListener('click', () => {
+    const dut = {
+      ip: dutIpInput.value.trim(),
+      authType: dutAuthType.value,
+      user: dutUserInput.value.trim(),
+      pass: dutPassInput.value,
+      apiKey: dutApiKeyInput.value.trim(),
+    };
+    window.fuzzer.openFirewall(dut);
   });
 
   // Connect to remote agents
@@ -640,6 +653,11 @@
     progressBar.style.width = '0%';
     progressText.textContent = `0 / ${totalScenarios}`;
 
+    // Open firewall monitor popup in DUT mode
+    if (dut && dut.ip) {
+      window.fuzzer.openFirewall(dut);
+    }
+
     // Subscribe to events
     unsubPacket = window.fuzzer.onPacket((evt) => {
       handlePacketEvent(evt);
@@ -727,6 +745,11 @@
     progressBar.style.width = '0%';
     const totalScenarios = clientScenarios.length + serverScenarios.length;
     progressText.textContent = `0 / ${totalScenarios}`;
+
+    // Open firewall monitor popup in DUT mode
+    if (dut && dut.ip) {
+      window.fuzzer.openFirewall(dut);
+    }
 
     // Configure agents
     addLogEntry('info', `Configuring agents: ${clientScenarios.length} client, ${serverScenarios.length} server scenarios`);

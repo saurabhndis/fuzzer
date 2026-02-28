@@ -1,0 +1,1359 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline';" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PAN-OS Firewall Diagnostics</title>
+  <style>
+    :root {
+      --bg:        #0f1117;
+      --surface:   #1a1d27;
+      --surface2:  #22263a;
+      --border:    #2e3250;
+      --accent:    #fa582d;
+      --accent2:   #ff7a57;
+      --success:   #2ecc71;
+      --warning:   #f39c12;
+      --error:     #e74c3c;
+      --info:      #3498db;
+      --text:      #e8eaf0;
+      --text-muted:#8892b0;
+      --mono:      'Fira Code', 'Cascadia Code', 'Consolas', monospace;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      font-size: 13px;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      -webkit-app-region: drag;
+    }
+
+    /* ── Title bar ── */
+    .titlebar {
+      height: 38px;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      padding: 0 16px;
+      gap: 10px;
+      flex-shrink: 0;
+    }
+
+    .titlebar-logo {
+      width: 22px;
+      height: 22px;
+      background: var(--accent);
+      border-radius: 4px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 12px;
+      font-weight: 900;
+      color: #fff;
+      flex-shrink: 0;
+    }
+
+    .titlebar-title {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text);
+    }
+
+    .titlebar-status {
+      margin-left: auto;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 11px;
+      color: var(--text-muted);
+    }
+
+    .status-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--text-muted);
+      transition: background 0.3s;
+    }
+    .status-dot.connected { background: var(--success); }
+    .status-dot.error     { background: var(--error); }
+    .status-dot.loading   { background: var(--warning); animation: pulse 1s infinite; }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50%       { opacity: 0.3; }
+    }
+
+    /* ── App layout ── */
+    .app-body {
+      display: flex;
+      flex: 1;
+      overflow: hidden;
+      -webkit-app-region: no-drag;
+    }
+
+    /* ── Sidebar ── */
+    .sidebar {
+      width: 280px;
+      flex-shrink: 0;
+      background: var(--surface);
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .sidebar-section {
+      padding: 14px 14px 10px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .sidebar-section-title {
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      margin-bottom: 10px;
+    }
+
+    /* ── Connection form ── */
+    .field {
+      margin-bottom: 8px;
+    }
+
+    label {
+      display: block;
+      font-size: 11px;
+      color: var(--text-muted);
+      margin-bottom: 3px;
+    }
+
+    input[type="text"],
+    input[type="password"] {
+      width: 100%;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 5px;
+      color: var(--text);
+      padding: 6px 9px;
+      font-size: 12px;
+      font-family: var(--mono);
+      outline: none;
+      transition: border-color 0.2s;
+    }
+
+    input:focus {
+      border-color: var(--accent);
+    }
+
+    input::placeholder { color: var(--text-muted); opacity: 0.5; }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 5px;
+      padding: 7px 14px;
+      border-radius: 5px;
+      border: none;
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 600;
+      transition: background 0.15s, opacity 0.15s;
+      width: 100%;
+    }
+
+    .btn-primary {
+      background: var(--accent);
+      color: #fff;
+    }
+    .btn-primary:hover { background: var(--accent2); }
+    .btn-primary:disabled { opacity: 0.4; cursor: not-allowed; }
+
+    .btn-secondary {
+      background: var(--surface2);
+      color: var(--text);
+      border: 1px solid var(--border);
+    }
+    .btn-secondary:hover { border-color: var(--accent); color: var(--accent); }
+    .btn-secondary:disabled { opacity: 0.4; cursor: not-allowed; }
+
+    /* ── Device info card ── */
+    .device-card {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 10px 12px;
+      font-size: 11px;
+      display: none;
+    }
+    .device-card.visible { display: block; }
+
+    .device-card-row {
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 5px;
+    }
+    .device-card-row:last-child { margin-bottom: 0; }
+    .device-card-key { color: var(--text-muted); }
+    .device-card-val { color: var(--text); font-family: var(--mono); text-align: right; max-width: 150px; word-break: break-all; }
+
+    /* ── Command palette ── */
+    .cmd-list {
+      flex: 1;
+      overflow-y: auto;
+      padding: 8px 0;
+    }
+
+    .cmd-group-title {
+      padding: 6px 14px 3px;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--text-muted);
+    }
+
+    .cmd-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 7px 14px;
+      cursor: pointer;
+      border-radius: 0;
+      transition: background 0.1s;
+      user-select: none;
+    }
+    .cmd-item:hover { background: var(--surface2); }
+    .cmd-item.active { background: rgba(250,88,45,0.12); }
+
+    .cmd-icon {
+      font-size: 14px;
+      width: 20px;
+      text-align: center;
+      flex-shrink: 0;
+    }
+
+    .cmd-label {
+      font-size: 12px;
+      color: var(--text);
+    }
+
+    .cmd-badge {
+      margin-left: auto;
+      font-size: 9px;
+      padding: 2px 5px;
+      border-radius: 3px;
+      background: var(--surface2);
+      color: var(--text-muted);
+      border: 1px solid var(--border);
+    }
+
+    /* ── Main panel ── */
+    .main-panel {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    /* ── Toolbar ── */
+    .toolbar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 14px;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+
+    .toolbar-label {
+      font-size: 12px;
+      color: var(--text-muted);
+      white-space: nowrap;
+    }
+
+    .custom-cmd-input {
+      flex: 1;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 5px;
+      color: var(--text);
+      padding: 5px 9px;
+      font-size: 12px;
+      font-family: var(--mono);
+      outline: none;
+      transition: border-color 0.2s;
+    }
+    .custom-cmd-input:focus { border-color: var(--accent); }
+    .custom-cmd-input::placeholder { color: var(--text-muted); opacity: 0.4; }
+
+    .btn-run {
+      flex-shrink: 0;
+      width: auto;
+      padding: 5px 14px;
+    }
+
+    .btn-clear {
+      flex-shrink: 0;
+      width: auto;
+      padding: 5px 10px;
+      font-size: 11px;
+    }
+
+    /* ── Output tabs ── */
+    .output-tabs {
+      display: flex;
+      align-items: center;
+      gap: 0;
+      padding: 0 14px;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+
+    .tab {
+      padding: 8px 14px;
+      font-size: 12px;
+      cursor: pointer;
+      color: var(--text-muted);
+      border-bottom: 2px solid transparent;
+      transition: color 0.15s, border-color 0.15s;
+    }
+    .tab.active {
+      color: var(--accent);
+      border-bottom-color: var(--accent);
+    }
+
+    /* ── Output area ── */
+    .output-area {
+      flex: 1;
+      overflow: hidden;
+      position: relative;
+    }
+
+    .output-pane {
+      display: none;
+      height: 100%;
+      overflow-y: auto;
+    }
+    .output-pane.active { display: block; }
+
+    /* History pane */
+    .history-entries {
+      padding: 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .history-entry {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      overflow: hidden;
+    }
+
+    .history-entry-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      background: var(--surface2);
+      border-bottom: 1px solid var(--border);
+      cursor: pointer;
+      user-select: none;
+    }
+
+    .history-entry-cmd {
+      font-family: var(--mono);
+      font-size: 11px;
+      color: var(--accent2);
+      flex: 1;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .history-entry-time {
+      font-size: 10px;
+      color: var(--text-muted);
+      flex-shrink: 0;
+    }
+
+    .history-entry-badge {
+      font-size: 10px;
+      padding: 2px 6px;
+      border-radius: 3px;
+      flex-shrink: 0;
+    }
+    .badge-ok    { background: rgba(46,204,113,0.15); color: var(--success); }
+    .badge-err   { background: rgba(231,76,60,0.15); color: var(--error); }
+
+    .history-entry-body {
+      padding: 10px 12px;
+      font-family: var(--mono);
+      font-size: 11px;
+      line-height: 1.7;
+      white-space: pre;
+      overflow-x: auto;
+      color: var(--text);
+      max-height: 400px;
+      overflow-y: auto;
+    }
+
+    .history-entry-body.collapsed { display: none; }
+
+    /* Raw/formatted toggle */
+    .entry-toggle {
+      font-size: 10px;
+      color: var(--text-muted);
+      cursor: pointer;
+      padding: 2px 6px;
+      border: 1px solid var(--border);
+      border-radius: 3px;
+    }
+    .entry-toggle:hover { color: var(--accent); border-color: var(--accent); }
+
+    /* Raw output pane */
+    .raw-output {
+      padding: 14px;
+      font-family: var(--mono);
+      font-size: 12px;
+      line-height: 1.7;
+      white-space: pre;
+      overflow-x: auto;
+      color: #a8ff78;
+    }
+
+    /* Empty state */
+    .empty-state {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100%;
+      color: var(--text-muted);
+      gap: 12px;
+      text-align: center;
+    }
+
+    .empty-icon {
+      font-size: 40px;
+      opacity: 0.3;
+    }
+
+    .empty-title {
+      font-size: 15px;
+      font-weight: 600;
+      color: var(--text-muted);
+    }
+
+    .empty-sub {
+      font-size: 12px;
+      max-width: 280px;
+      line-height: 1.5;
+    }
+
+    /* ── Toast notifications ── */
+    .toast-container {
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      z-index: 1000;
+    }
+
+    .toast {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 10px 14px;
+      font-size: 12px;
+      max-width: 340px;
+      animation: slideIn 0.2s ease;
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+    }
+
+    .toast.toast-error   { border-left: 3px solid var(--error); }
+    .toast.toast-success { border-left: 3px solid var(--success); }
+    .toast.toast-info    { border-left: 3px solid var(--info); }
+
+    .toast-icon { flex-shrink: 0; }
+    .toast-msg  { flex: 1; line-height: 1.4; }
+
+    @keyframes slideIn {
+      from { transform: translateX(20px); opacity: 0; }
+      to   { transform: translateX(0);   opacity: 1; }
+    }
+
+    /* ── Scrollbar styling ── */
+    ::-webkit-scrollbar { width: 5px; height: 5px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+
+    /* ── Spinner ── */
+    .spinner {
+      display: inline-block;
+      width: 12px;
+      height: 12px;
+      border: 2px solid rgba(255,255,255,0.3);
+      border-top-color: #fff;
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── Key-value syntax highlighting ── */
+    .xml-tag    { color: #e06c75; }
+    .xml-attr   { color: #d19a66; }
+    .xml-value  { color: #98c379; }
+    .xml-text   { color: var(--text); }
+
+    /* ── Formatted output: tables ── */
+    .fmt-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-family: var(--mono);
+      font-size: 11px;
+      margin: 8px 0;
+    }
+
+    .fmt-table th {
+      background: var(--surface2);
+      color: var(--accent2);
+      text-align: left;
+      padding: 6px 10px;
+      border-bottom: 2px solid var(--border);
+      font-weight: 600;
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      white-space: nowrap;
+      position: sticky;
+      top: 0;
+    }
+
+    .fmt-table td {
+      padding: 4px 10px;
+      border-bottom: 1px solid var(--border);
+      color: var(--text);
+      max-width: 300px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .fmt-table tbody tr:hover {
+      background: rgba(250, 88, 45, 0.06);
+    }
+
+    /* ── Formatted output: key-value ── */
+    .fmt-kv {
+      margin: 6px 0;
+    }
+
+    .fmt-kv-row {
+      display: flex;
+      padding: 3px 0;
+      border-bottom: 1px solid rgba(46, 50, 80, 0.4);
+    }
+
+    .fmt-kv-key {
+      color: var(--accent2);
+      min-width: 200px;
+      flex-shrink: 0;
+      font-size: 11px;
+      font-weight: 600;
+    }
+
+    .fmt-kv-val {
+      color: var(--text);
+      font-family: var(--mono);
+      font-size: 11px;
+      word-break: break-all;
+    }
+
+    /* ── Formatted output: section headers ── */
+    .fmt-section {
+      color: var(--accent);
+      font-size: 12px;
+      font-weight: 700;
+      margin: 14px 0 4px;
+      padding-bottom: 3px;
+      border-bottom: 1px solid var(--border);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    .fmt-section:first-child {
+      margin-top: 0;
+    }
+
+    /* ── Formatted body mode ── */
+    .history-entry-body.formatted {
+      white-space: normal;
+      line-height: 1.5;
+    }
+
+    .history-entry-body.formatted pre {
+      margin: 6px 0;
+      white-space: pre-wrap;
+      font-size: 11px;
+      color: var(--text);
+    }
+
+    .fmt-empty {
+      color: var(--text-muted);
+      font-style: italic;
+      padding: 8px 0;
+    }
+  </style>
+</head>
+<body>
+
+<!-- Title bar -->
+<div class="titlebar">
+  <div class="titlebar-logo">PA</div>
+  <span class="titlebar-title">PAN-OS Firewall Diagnostics</span>
+  <div class="titlebar-status">
+    <div class="status-dot" id="statusDot"></div>
+    <span id="statusText">Disconnected</span>
+  </div>
+</div>
+
+<!-- App body -->
+<div class="app-body">
+
+  <!-- Sidebar -->
+  <div class="sidebar">
+
+    <!-- Connection section -->
+    <div class="sidebar-section">
+      <div class="sidebar-section-title">Connection</div>
+      <div class="field">
+        <label>Firewall IP / Hostname</label>
+        <input type="text" id="hostInput" placeholder="192.168.1.1" autocomplete="off" spellcheck="false" />
+      </div>
+      <div class="field">
+        <label>Username</label>
+        <input type="text" id="userInput" placeholder="admin" autocomplete="off" spellcheck="false" />
+      </div>
+      <div class="field">
+        <label>Password</label>
+        <input type="password" id="passInput" placeholder="••••••••" autocomplete="off" />
+      </div>
+      <button class="btn btn-primary" id="connectBtn">
+        Connect &amp; Get API Key
+      </button>
+    </div>
+
+    <!-- Device info card -->
+    <div class="sidebar-section" id="deviceSection" style="display:none;">
+      <div class="sidebar-section-title">Device Info</div>
+      <div class="device-card visible" id="deviceCard">
+        <div class="device-card-row">
+          <span class="device-card-key">Hostname</span>
+          <span class="device-card-val" id="di-hostname">—</span>
+        </div>
+        <div class="device-card-row">
+          <span class="device-card-key">Model</span>
+          <span class="device-card-val" id="di-model">—</span>
+        </div>
+        <div class="device-card-row">
+          <span class="device-card-key">PAN-OS</span>
+          <span class="device-card-val" id="di-swver">—</span>
+        </div>
+        <div class="device-card-row">
+          <span class="device-card-key">App Content</span>
+          <span class="device-card-val" id="di-appver">—</span>
+        </div>
+        <div class="device-card-row">
+          <span class="device-card-key">Uptime</span>
+          <span class="device-card-val" id="di-uptime">—</span>
+        </div>
+        <div class="device-card-row">
+          <span class="device-card-key">Serial</span>
+          <span class="device-card-val" id="di-serial">—</span>
+        </div>
+      </div>
+      <div style="margin-top:8px;">
+        <button class="btn btn-secondary" id="disconnectBtn">Disconnect</button>
+      </div>
+    </div>
+
+    <!-- Command palette -->
+    <div class="cmd-list" id="cmdList">
+      <div style="padding: 40px 14px; text-align:center; color: var(--text-muted); font-size:11px; line-height:1.6;">
+        Connect to a firewall to run diagnostic commands
+      </div>
+    </div>
+  </div>
+
+  <!-- Main panel -->
+  <div class="main-panel">
+
+    <!-- Toolbar -->
+    <div class="toolbar">
+      <span class="toolbar-label">Custom:</span>
+      <input class="custom-cmd-input" type="text" id="customCmdInput"
+             placeholder="show system info"
+             spellcheck="false" autocomplete="off" />
+      <button class="btn btn-primary btn-run" id="runCustomBtn" disabled>Run</button>
+      <button class="btn btn-secondary btn-clear" id="clearBtn">Clear</button>
+    </div>
+
+    <!-- Output tabs -->
+    <div class="output-tabs">
+      <div class="tab active" data-tab="history">History</div>
+      <div class="tab" data-tab="raw">Raw XML</div>
+    </div>
+
+    <!-- Output area -->
+    <div class="output-area">
+      <!-- History pane -->
+      <div class="output-pane active" id="pane-history">
+        <div class="empty-state" id="emptyState">
+          <div class="empty-icon">🔥</div>
+          <div class="empty-title">No output yet</div>
+          <div class="empty-sub">Connect to a firewall, then run a command from the sidebar or enter a custom command above (e.g. "show system info").</div>
+        </div>
+        <div class="history-entries" id="historyEntries"></div>
+      </div>
+
+      <!-- Raw XML pane -->
+      <div class="output-pane" id="pane-raw">
+        <pre class="raw-output" id="rawOutput">No output yet.</pre>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Toast container -->
+<div class="toast-container" id="toastContainer"></div>
+
+<script>
+  // ── State ──────────────────────────────────────────────────────────────────
+  const state = {
+    host: null,
+    apiKey: null,
+    connected: false,
+    running: false,
+  };
+
+  // ── DOM refs ───────────────────────────────────────────────────────────────
+  const $ = (id) => document.getElementById(id);
+  const hostInput     = $('hostInput');
+  const userInput     = $('userInput');
+  const passInput     = $('passInput');
+  const connectBtn    = $('connectBtn');
+  const disconnectBtn = $('disconnectBtn');
+  const deviceSection = $('deviceSection');
+  const cmdList       = $('cmdList');
+  const customCmdInput = $('customCmdInput');
+  const runCustomBtn  = $('runCustomBtn');
+  const clearBtn      = $('clearBtn');
+  const statusDot     = $('statusDot');
+  const statusText    = $('statusText');
+  const historyEntries = $('historyEntries');
+  const emptyState    = $('emptyState');
+  const rawOutput     = $('rawOutput');
+
+  // ── Commands palette definition ────────────────────────────────────────────
+  const COMMANDS = [
+    {
+      group: 'System',
+      items: [
+        { label: 'System Info',        icon: '💻', cmd: '<show><system><info></info></system></show>' },
+        { label: 'System Resources',   icon: '📊', cmd: '<show><system><resources></resources></system></show>' },
+        { label: 'Clock',              icon: '🕐', cmd: '<show><clock></clock></show>' },
+        { label: 'Environment',        icon: '🌡️', cmd: '<show><system><environmentals></environmentals></system></show>' },
+        { label: 'Master Key',         icon: '🔑', cmd: '<request><master-key><show></show></master-key></request>' },
+      ],
+    },
+    {
+      group: 'Network',
+      items: [
+        { label: 'Interfaces',         icon: '🔌', cmd: '<show><interface>all</interface></show>' },
+        { label: 'ARP Table',          icon: '📡', cmd: '<show><arp><entry name="all"/></arp></show>' },
+        { label: 'Route Table',        icon: '🗺️', cmd: '<show><routing><route></route></routing></show>' },
+        { label: 'Routing Summary',    icon: '📋', cmd: '<show><routing><summary></summary></routing></show>' },
+        { label: 'MAC Table',          icon: '🔗', cmd: '<show><mac>all</mac></show>' },
+        { label: 'Neighbors (LLDP)',   icon: '🔄', cmd: '<show><lldp><neighbors>all</neighbors></lldp></show>' },
+      ],
+    },
+    {
+      group: 'Sessions',
+      items: [
+        { label: 'Session Summary',    icon: '📈', cmd: '<show><session><info></info></session></show>' },
+        { label: 'Session Meter',      icon: '⚡', cmd: '<show><session><meter></meter></session></show>' },
+        { label: 'Session All (100)',   icon: '🗄️', cmd: '<show><session><all></all></session></show>', badge: 'verbose' },
+      ],
+    },
+    {
+      group: 'Security',
+      items: [
+        { label: 'Security Policies',  icon: '🛡️', cmd: '<show><running><rule-use><rule-base>security</rule-base><type>intrazone</type><rules>all</rules></rule-use></running></show>', badge: 'slow' },
+        { label: 'Threat Prevention',  icon: '🚨', cmd: '<show><running><threats></threats></running></show>' },
+        { label: 'URL Filtering',      icon: '🌐', cmd: '<show><running><url-cache><statistics></statistics></url-cache></running></show>' },
+        { label: 'Wildfire Status',    icon: '🔥', cmd: '<show><wildfire><status></status></wildfire></show>' },
+      ],
+    },
+    {
+      group: 'High Availability',
+      items: [
+        { label: 'HA State',           icon: '🔁', cmd: '<show><high-availability><state></state></high-availability></show>' },
+        { label: 'HA All',             icon: '🔃', cmd: '<show><high-availability><all></all></high-availability></show>' },
+        { label: 'HA Path Monitor',    icon: '📍', cmd: '<show><high-availability><path-monitoring></path-monitoring></high-availability></show>' },
+      ],
+    },
+    {
+      group: 'VPN',
+      items: [
+        { label: 'IPSec Tunnels',      icon: '🔐', cmd: '<show><vpn><ipsec-sa></ipsec-sa></vpn></show>' },
+        { label: 'IKE Peers',          icon: '🤝', cmd: '<show><vpn><ike-sa></ike-sa></vpn></show>' },
+        { label: 'GlobalProtect GW',   icon: '🌍', cmd: '<show><global-protect-gateway><current-user></current-user></global-protect-gateway></show>' },
+      ],
+    },
+    {
+      group: 'Logs',
+      items: [
+        { label: 'System Logs (50)',   icon: '📜', cmd: '<show><log><system><last>50</last></system></log></show>' },
+        { label: 'Traffic Logs (20)',  icon: '🚦', cmd: '<show><log><traffic><last>20</last></traffic></log></show>', badge: 'slow' },
+        { label: 'Threat Logs (20)',   icon: '⚠️', cmd: '<show><log><threat><last>20</last></threat></log></show>', badge: 'slow' },
+      ],
+    },
+    {
+      group: 'Content & Updates',
+      items: [
+        { label: 'Content Info',       icon: '📦', cmd: '<request><content><info></info></content></request>' },
+        { label: 'License Info',       icon: '📜', cmd: '<request><license><info></info></license></request>' },
+        { label: 'Software Versions',  icon: '🔄', cmd: '<request><system><software><info></info></software></system></request>' },
+      ],
+    },
+    {
+      group: 'Counters',
+      items: [
+        { label: 'Global Counters',    icon: '📊', cmd: '<show><counter><global></global></counter></show>' },
+        { label: 'Interface Counters', icon: '📉', cmd: '<show><counter><interface>all</interface></counter></show>' },
+        { label: 'Drop Counters',      icon: '🚫', cmd: '<show><counter><global><filter><aspect>drop</aspect></filter></global></counter></show>' },
+      ],
+    },
+  ];
+
+  // ── Build command list ─────────────────────────────────────────────────────
+  function buildCommandList() {
+    cmdList.innerHTML = '';
+    COMMANDS.forEach(group => {
+      const title = document.createElement('div');
+      title.className = 'cmd-group-title';
+      title.textContent = group.group;
+      cmdList.appendChild(title);
+
+      group.items.forEach(item => {
+        const el = document.createElement('div');
+        el.className = 'cmd-item';
+        el.innerHTML = `
+          <span class="cmd-icon">${item.icon}</span>
+          <span class="cmd-label">${item.label}</span>
+          ${item.badge ? `<span class="cmd-badge">${item.badge}</span>` : ''}
+        `;
+        el.title = item.cmd;
+        el.addEventListener('click', () => {
+          if (!state.connected || state.running) return;
+          document.querySelectorAll('.cmd-item').forEach(e => e.classList.remove('active'));
+          el.classList.add('active');
+          runCommand(item.cmd, item.label);
+        });
+        cmdList.appendChild(el);
+      });
+    });
+  }
+
+  // ── Status helpers ─────────────────────────────────────────────────────────
+  function setStatus(type, text) {
+    statusDot.className = 'status-dot ' + (type || '');
+    statusText.textContent = text;
+  }
+
+  // ── Toast ──────────────────────────────────────────────────────────────────
+  function toast(msg, type = 'info', duration = 4000) {
+    const icons = { error: '✖', success: '✔', info: 'ℹ' };
+    const el = document.createElement('div');
+    el.className = `toast toast-${type}`;
+    el.innerHTML = `<span class="toast-icon">${icons[type] || 'ℹ'}</span><span class="toast-msg">${msg}</span>`;
+    $('toastContainer').appendChild(el);
+    setTimeout(() => el.remove(), duration);
+  }
+
+  // ── Tabs ───────────────────────────────────────────────────────────────────
+  document.querySelectorAll('.tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+      document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+      document.querySelectorAll('.output-pane').forEach(p => p.classList.remove('active'));
+      tab.classList.add('active');
+      $('pane-' + tab.dataset.tab).classList.add('active');
+    });
+  });
+
+  // ── Connect ────────────────────────────────────────────────────────────────
+  connectBtn.addEventListener('click', connect);
+  [hostInput, userInput, passInput].forEach(el => {
+    el.addEventListener('keydown', e => { if (e.key === 'Enter') connect(); });
+  });
+
+  async function connect() {
+    const host = hostInput.value.trim();
+    const username = userInput.value.trim();
+    const password = passInput.value;
+
+    if (!host)     { toast('Enter the firewall IP or hostname.', 'error'); return; }
+    if (!username) { toast('Enter a username.', 'error'); return; }
+    if (!password) { toast('Enter a password.', 'error'); return; }
+
+    connectBtn.disabled = true;
+    connectBtn.innerHTML = '<span class="spinner"></span> Connecting…';
+    setStatus('loading', 'Pinging host…');
+
+    try {
+      const pingResult = await window.panos.ping({ host });
+      if (!pingResult.reachable) {
+        toast(`Host ${host} is not reachable. Check the IP and network connectivity.`, 'error');
+        console.log('Ping output:', pingResult.output);
+        connectBtn.disabled = false;
+        connectBtn.innerHTML = 'Connect &amp; Get API Key';
+        setStatus('', 'Disconnected');
+        return;
+      }
+      toast(`Host ${host} is reachable. Authenticating…`, 'success');
+      setStatus('loading', 'Authenticating…');
+
+      const { apiKey } = await window.panos.getApiKey({ host, username, password });
+
+      state.host = host;
+      state.apiKey = apiKey;
+      state.connected = true;
+
+      setStatus('loading', 'Fetching system info…');
+      const info = await window.panos.systemInfo({ host, apiKey });
+
+      // Populate device card
+      $('di-hostname').textContent = info.hostname;
+      $('di-model').textContent    = info.model;
+      $('di-swver').textContent    = info.swVersion;
+      $('di-appver').textContent   = info.appVersion;
+      $('di-uptime').textContent   = info.uptime;
+      $('di-serial').textContent   = info.serial;
+
+      deviceSection.style.display = 'block';
+      runCustomBtn.disabled = false;
+      connectBtn.style.display = 'none';
+      setStatus('connected', `Connected · ${info.hostname}`);
+
+      buildCommandList();
+      toast(`Connected to ${info.hostname} (${info.model})`, 'success');
+
+      // Auto-run system info
+      const sysHtml = info.parsed ? autoFormat(info.parsed) : null;
+      addHistoryEntry('<show><system><info></info></system></show>', 'System Info', info.formatted, true, sysHtml);
+      rawOutput.textContent = info.raw;
+
+    } catch (err) {
+      setStatus('error', 'Connection failed');
+      toast(err.message, 'error', 6000);
+      connectBtn.disabled = false;
+      connectBtn.innerHTML = 'Connect &amp; Get API Key';
+    }
+  }
+
+  // ── Disconnect ─────────────────────────────────────────────────────────────
+  disconnectBtn.addEventListener('click', () => {
+    state.host = null;
+    state.apiKey = null;
+    state.connected = false;
+    state.running = false;
+
+    deviceSection.style.display = 'none';
+    connectBtn.disabled = false;
+    connectBtn.style.display = '';
+    connectBtn.innerHTML = 'Connect &amp; Get API Key';
+    runCustomBtn.disabled = true;
+    passInput.value = '';
+    setStatus('', 'Disconnected');
+
+    cmdList.innerHTML = '<div style="padding:40px 14px;text-align:center;color:var(--text-muted);font-size:11px;line-height:1.6;">Connect to a firewall to run diagnostic commands</div>';
+    toast('Disconnected from firewall.', 'info');
+  });
+
+  // ── Text-to-XML converter ────────────────────────────────────────────────
+  // Converts "show system info" → "<show><system><info></info></system></show>"
+  // Supports key=value: "show arp all interface ethernet1/1" isn't affected,
+  // but explicit equal-sign params like "show counter interface=ethernet1/1"
+  // are left as-is within the innermost tag.
+  function textToXml(text) {
+    // If it already looks like XML, pass it through unchanged
+    if (text.startsWith('<')) return text;
+    const tokens = text.split(/\s+/);
+    let open = '', close = '';
+    for (const token of tokens) {
+      open += `<${token}>`;
+      close = `</${token}>` + close;
+    }
+    return open + close;
+  }
+
+  // ── Run custom command ─────────────────────────────────────────────────────
+  runCustomBtn.addEventListener('click', () => {
+    const raw = customCmdInput.value.trim();
+    if (!raw) { toast('Enter a command.', 'error'); return; }
+    const cmd = textToXml(raw);
+    runCommand(cmd, 'Custom');
+  });
+  customCmdInput.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && !runCustomBtn.disabled) runCustomBtn.click();
+  });
+
+  // ── Clear ──────────────────────────────────────────────────────────────────
+  clearBtn.addEventListener('click', () => {
+    historyEntries.innerHTML = '';
+    rawOutput.textContent = 'No output yet.';
+    emptyState.style.display = '';
+    document.querySelectorAll('.cmd-item').forEach(e => e.classList.remove('active'));
+  });
+
+  // ── Run a command ──────────────────────────────────────────────────────────
+  async function runCommand(cmd, label) {
+    if (!state.connected || state.running) return;
+    state.running = true;
+    setStatus('loading', `Running: ${label}…`);
+
+    runCustomBtn.disabled = true;
+    runCustomBtn.innerHTML = '<span class="spinner"></span>';
+
+    try {
+      const result = await window.panos.runCommand({
+        host: state.host,
+        apiKey: state.apiKey,
+        command: cmd,
+      });
+
+      rawOutput.textContent = result.raw;
+      const htmlContent = result.parsed ? autoFormat(result.parsed) : null;
+      addHistoryEntry(cmd, label, result.formatted, true, htmlContent);
+
+      // Switch to history tab
+      document.querySelector('.tab[data-tab="history"]').click();
+      setStatus('connected', `Connected · ${$('di-hostname').textContent}`);
+
+    } catch (err) {
+      addHistoryEntry(cmd, label, err.message, false);
+      setStatus('error', `Error: ${label}`);
+      toast(err.message, 'error', 6000);
+      setTimeout(() => setStatus('connected', `Connected · ${$('di-hostname').textContent}`), 3000);
+    } finally {
+      state.running = false;
+      runCustomBtn.disabled = false;
+      runCustomBtn.innerHTML = 'Run';
+    }
+  }
+
+  // ── Add history entry ──────────────────────────────────────────────────────
+  let entryCounter = 0;
+
+  function addHistoryEntry(cmd, label, content, success, htmlContent) {
+    emptyState.style.display = 'none';
+
+    const id = ++entryCounter;
+    const now = new Date().toLocaleTimeString();
+
+    const entry = document.createElement('div');
+    entry.className = 'history-entry';
+
+    const bodyId = `body-${id}`;
+    const header = document.createElement('div');
+    header.className = 'history-entry-header';
+    header.innerHTML = `
+      <span class="history-entry-cmd" title="${escHtml(cmd)}">${escHtml(label)}: <em>${escHtml(truncate(cmd, 60))}</em></span>
+      <span class="entry-toggle" data-body="${bodyId}">▼</span>
+      <span class="history-entry-badge ${success ? 'badge-ok' : 'badge-err'}">${success ? 'OK' : 'ERR'}</span>
+      <span class="history-entry-time">${now}</span>
+    `;
+
+    let body;
+    if (htmlContent) {
+      body = document.createElement('div');
+      body.className = 'history-entry-body formatted';
+      body.id = bodyId;
+      body.innerHTML = htmlContent;
+    } else {
+      body = document.createElement('pre');
+      body.className = 'history-entry-body';
+      body.id = bodyId;
+      body.textContent = content;
+    }
+
+    entry.appendChild(header);
+    entry.appendChild(body);
+    historyEntries.insertBefore(entry, historyEntries.firstChild);
+
+    // Toggle collapse
+    header.querySelector('.entry-toggle').addEventListener('click', (e) => {
+      const b = document.getElementById(e.target.dataset.body);
+      const collapsed = b.classList.toggle('collapsed');
+      e.target.textContent = collapsed ? '▶' : '▼';
+    });
+  }
+
+  function escHtml(str) {
+    return String(str)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+
+  function truncate(str, n) {
+    return str.length > n ? str.slice(0, n) + '…' : str;
+  }
+
+  // ── Auto-format parsed XML data ───────────────────────────────────────────
+  function autoFormat(parsed) {
+    try {
+      let payload = parsed && parsed.response && parsed.response.result;
+      if (!payload) return null;
+      // If result is a plain string, return as preformatted text
+      if (typeof payload === 'string') {
+        return '<pre>' + escHtml(payload) + '</pre>';
+      }
+      const html = renderNode(payload, 0);
+      return html || null;
+    } catch {
+      return null;
+    }
+  }
+
+  function isScalar(val) {
+    return val === null || val === undefined || typeof val === 'string' || typeof val === 'number' || typeof val === 'boolean';
+  }
+
+  function formatColumnName(name) {
+    return escHtml(
+      String(name)
+        .replace(/[-_]/g, ' ')
+        .replace(/\b\w/g, c => c.toUpperCase())
+    );
+  }
+
+  function renderNode(node, depth) {
+    if (node === null || node === undefined) return '';
+    if (typeof node === 'string') return escHtml(node);
+    if (typeof node === 'number' || typeof node === 'boolean') return escHtml(String(node));
+    if (Array.isArray(node)) return renderArray(node, depth);
+    if (typeof node === 'object') return renderObject(node, depth);
+    return escHtml(String(node));
+  }
+
+  function renderArray(arr, depth) {
+    if (arr.length === 0) return '<div class="fmt-empty">No entries</div>';
+    // Array of objects → table
+    if (typeof arr[0] === 'object' && arr[0] !== null && !Array.isArray(arr[0])) {
+      return renderHtmlTable(arr);
+    }
+    // Array of scalars → simple list
+    return arr.map(item => '<div>' + renderNode(item, depth) + '</div>').join('');
+  }
+
+  function renderObject(obj, depth) {
+    const keys = Object.keys(obj);
+    if (keys.length === 0) return '<div class="fmt-empty">Empty</div>';
+
+    const scalarEntries = [];
+    const complexEntries = [];
+
+    for (const key of keys) {
+      const val = obj[key];
+      if (isScalar(val)) {
+        scalarEntries.push([key, val]);
+      } else {
+        complexEntries.push([key, val]);
+      }
+    }
+
+    let html = '';
+
+    // Render scalars as key-value block
+    if (scalarEntries.length > 0) {
+      html += renderKeyValueTable(scalarEntries);
+    }
+
+    // Render complex entries
+    for (const [key, val] of complexEntries) {
+      if (Array.isArray(val)) {
+        if (val.length > 0 && typeof val[0] === 'object') {
+          html += renderSectionHeader(key, depth);
+          html += renderHtmlTable(val);
+        } else {
+          html += renderSectionHeader(key, depth);
+          html += renderArray(val, depth + 1);
+        }
+      } else if (typeof val === 'object') {
+        // Check for "entry" wrapper pattern (common in PAN-OS)
+        const entryVal = val.entry;
+        if (entryVal !== undefined) {
+          const entries = Array.isArray(entryVal) ? entryVal : [entryVal];
+          if (entries.length > 0 && typeof entries[0] === 'object') {
+            html += renderSectionHeader(key, depth);
+            html += renderHtmlTable(entries);
+            continue;
+          }
+        }
+        // Check if this is a single-key wrapper we can unwrap
+        const subKeys = Object.keys(val);
+        if (subKeys.length === 1 && typeof val[subKeys[0]] === 'object' && !Array.isArray(val[subKeys[0]])) {
+          // Unwrap single-key wrappers to reduce nesting noise
+          html += renderSectionHeader(key + ' / ' + subKeys[0], depth);
+          html += renderNode(val[subKeys[0]], depth + 1);
+        } else {
+          html += renderSectionHeader(key, depth);
+          html += renderNode(val, depth + 1);
+        }
+      }
+    }
+
+    return html;
+  }
+
+  function renderHtmlTable(arrayOfObjects) {
+    const columns = [];
+    const columnSet = new Set();
+    for (const obj of arrayOfObjects) {
+      if (typeof obj !== 'object' || obj === null) continue;
+      for (const key of Object.keys(obj)) {
+        if (!columnSet.has(key)) {
+          columnSet.add(key);
+          columns.push(key);
+        }
+      }
+    }
+
+    if (columns.length === 0) return '';
+
+    let html = '<div style="overflow-x:auto;"><table class="fmt-table"><thead><tr>';
+    for (const col of columns) {
+      html += '<th>' + formatColumnName(col) + '</th>';
+    }
+    html += '</tr></thead><tbody>';
+
+    for (const row of arrayOfObjects) {
+      if (typeof row !== 'object' || row === null) continue;
+      html += '<tr>';
+      for (const col of columns) {
+        const val = row[col];
+        let display;
+        if (val === undefined || val === null) {
+          display = '';
+        } else if (isScalar(val)) {
+          display = escHtml(String(val));
+        } else if (typeof val === 'object') {
+          // Flatten nested objects for cell display
+          display = escHtml(flattenValue(val));
+        } else {
+          display = escHtml(String(val));
+        }
+        html += '<td title="' + display + '">' + display + '</td>';
+      }
+      html += '</tr>';
+    }
+
+    html += '</tbody></table></div>';
+    return html;
+  }
+
+  function flattenValue(obj) {
+    if (isScalar(obj)) return String(obj ?? '');
+    if (Array.isArray(obj)) return obj.map(flattenValue).join(', ');
+    if (typeof obj === 'object') {
+      const parts = [];
+      for (const [k, v] of Object.entries(obj)) {
+        parts.push(k + ': ' + flattenValue(v));
+      }
+      return parts.join(', ');
+    }
+    return String(obj);
+  }
+
+  function renderKeyValueTable(entries) {
+    let html = '<div class="fmt-kv">';
+    for (const [key, val] of entries) {
+      html += '<div class="fmt-kv-row">';
+      html += '<span class="fmt-kv-key">' + formatColumnName(key) + '</span>';
+      html += '<span class="fmt-kv-val">' + escHtml(String(val ?? '')) + '</span>';
+      html += '</div>';
+    }
+    html += '</div>';
+    return html;
+  }
+
+  function renderSectionHeader(name, depth) {
+    return '<div class="fmt-section" style="font-size:' + Math.max(11, 13 - depth) + 'px;">' + formatColumnName(name) + '</div>';
+  }
+
+  // ── Auto-connect from DUT config (sent by fuzzer main window) ───────────
+  if (window.panos && window.panos.onDutConfig) {
+    window.panos.onDutConfig((dut) => {
+      if (!dut || !dut.ip) return;
+      hostInput.value = dut.ip;
+      if (dut.authType === 'password' && dut.user && dut.pass) {
+        userInput.value = dut.user;
+        passInput.value = dut.pass;
+        // Auto-connect after a short delay to let the window render
+        setTimeout(() => connect(), 300);
+      } else if (dut.authType === 'apikey' && dut.apiKey) {
+        // Direct API key mode — set state and fetch system info
+        state.host = dut.ip;
+        state.apiKey = dut.apiKey;
+        state.connected = true;
+        setStatus('loading', 'Fetching system info…');
+        window.panos.systemInfo({ host: dut.ip, apiKey: dut.apiKey }).then((info) => {
+          $('di-hostname').textContent = info.hostname;
+          $('di-model').textContent    = info.model;
+          $('di-swver').textContent    = info.swVersion;
+          $('di-appver').textContent   = info.appVersion;
+          $('di-uptime').textContent   = info.uptime;
+          $('di-serial').textContent   = info.serial;
+          deviceSection.style.display = 'block';
+          runCustomBtn.disabled = false;
+          connectBtn.style.display = 'none';
+          setStatus('connected', 'Connected · ' + info.hostname);
+          buildCommandList();
+          toast('Connected to ' + info.hostname + ' (' + info.model + ')', 'success');
+          const sysHtml = info.parsed ? autoFormat(info.parsed) : null;
+          addHistoryEntry('<show><system><info></info></system></show>', 'System Info', info.formatted, true, sysHtml);
+          rawOutput.textContent = info.raw;
+        }).catch((err) => {
+          setStatus('error', 'Connection failed');
+          toast(err.message, 'error', 6000);
+        });
+      }
+    });
+  }
+</script>
+</body>
+</html>

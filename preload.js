@@ -44,4 +44,22 @@ contextBridge.exposeInMainWorld('fuzzer', {
     ipcRenderer.on('distributed-agent-status', listener);
     return () => ipcRenderer.removeListener('distributed-agent-status', listener);
   },
+
+  // Firewall monitor
+  openFirewall: (dutConfig) => ipcRenderer.invoke('open-firewall', dutConfig),
+  closeFirewall: () => ipcRenderer.invoke('close-firewall'),
+});
+
+// PAN-OS Firewall API (used by the firewall popup window)
+contextBridge.exposeInMainWorld('panos', {
+  ping: (args) => ipcRenderer.invoke('panos:ping', args),
+  getApiKey: (args) => ipcRenderer.invoke('panos:getApiKey', args),
+  runCommand: (args) => ipcRenderer.invoke('panos:runCommand', args),
+  runConfig: (args) => ipcRenderer.invoke('panos:runConfig', args),
+  systemInfo: (args) => ipcRenderer.invoke('panos:systemInfo', args),
+  onDutConfig: (cb) => {
+    const listener = (_e, data) => cb(data);
+    ipcRenderer.on('dut-config', listener);
+    return () => ipcRenderer.removeListener('dut-config', listener);
+  },
 });
