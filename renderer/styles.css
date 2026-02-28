@@ -294,6 +294,33 @@ body {
 }
 
 /* Controls Bar */
+.loop-controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.loop-controls label {
+  font-size: 11px;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.loop-controls input[type="number"] {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  color: var(--text-primary);
+  padding: 5px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  width: 60px;
+}
+
+.loop-controls input[type="number"]:focus {
+  border-color: var(--accent);
+}
+
 .controls-bar {
   display: flex;
   align-items: center;

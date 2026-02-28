@@ -108,7 +108,8 @@ ipcMain.handle('list-scenarios', () => {
 
 // Run fuzzer
 ipcMain.handle('run-fuzzer', async (event, opts) => {
-  const { mode, host, port, scenarioNames, delay, timeout, pcapFile, verbose, hostname, protocol, dut } = opts;
+  const { mode, host, port, scenarioNames, delay, timeout, pcapFile, verbose, hostname, protocol, dut, loopCount: rawLoop } = opts;
+  const loopCount = Math.max(1, Math.min(1000, parseInt(rawLoop, 10) || 1));
 
   const send = (channel, data) => {
     if (mainWindow && !mainWindow.isDestroyed()) {
@@ -143,6 +144,8 @@ ipcMain.handle('run-fuzzer', async (event, opts) => {
       return { error: 'No valid scenarios selected' };
     }
 
+    const totalWithLoops = scenarios.length * loopCount;
+
     activeClient = new UnifiedClient({
       host, port: portNum,
       timeout: timeout || 5000, delay: delay || 100,
@@ -150,13 +153,19 @@ ipcMain.handle('run-fuzzer', async (event, opts) => {
       dut,
     });
 
-    for (const scenario of scenarios) {
+    for (let loop = 0; loop < loopCount; loop++) {
       if (activeClient.aborted) break;
-      send('fuzzer-progress', { scenario: scenario.name, total: scenarios.length, current: results.length + 1 });
-      const result = await activeClient.runScenario(scenario);
-      results.push(result);
-      send('fuzzer-result', result);
-      await new Promise(r => setTimeout(r, 300));
+      if (loopCount > 1) {
+        send('fuzzer-packet', { type: 'info', message: `── Loop ${loop + 1} / ${loopCount} ──` });
+      }
+      for (const scenario of scenarios) {
+        if (activeClient.aborted) break;
+        send('fuzzer-progress', { scenario: scenario.name, total: totalWithLoops, current: results.length + 1 });
+        const result = await activeClient.runScenario(scenario);
+        results.push(result);
+        send('fuzzer-result', result);
+        await new Promise(r => setTimeout(r, 300));
+      }
     }
 
     activeClient.close();
@@ -195,19 +204,26 @@ ipcMain.handle('run-fuzzer', async (event, opts) => {
       }
 
       if (scenarios.length > 0) {
+        const totalH2WithLoops = scenarios.length * loopCount;
         // Run server-side scenarios (AJ) — each waits for a client to connect
         send('fuzzer-packet', {
           type: 'info',
           message: `HTTP/2 server running server-side scenarios — connect an HTTP/2 client to port ${portNum}`,
         });
 
-        for (const scenario of scenarios) {
+        for (let loop = 0; loop < loopCount; loop++) {
           if (activeServer.aborted) break;
-          send('fuzzer-progress', { scenario: scenario.name, total: scenarios.length, current: results.length + 1 });
-          const result = await activeServer.runScenario(scenario);
-          results.push(result);
-          send('fuzzer-result', result);
-          await new Promise(r => setTimeout(r, 500));
+          if (loopCount > 1) {
+            send('fuzzer-packet', { type: 'info', message: `── Loop ${loop + 1} / ${loopCount} ──` });
+          }
+          for (const scenario of scenarios) {
+            if (activeServer.aborted) break;
+            send('fuzzer-progress', { scenario: scenario.name, total: totalH2WithLoops, current: results.length + 1 });
+            const result = await activeServer.runScenario(scenario);
+            results.push(result);
+            send('fuzzer-result', result);
+            await new Promise(r => setTimeout(r, 500));
+          }
         }
 
         activeServer = null;
@@ -240,13 +256,21 @@ ipcMain.handle('run-fuzzer', async (event, opts) => {
       message: `Server certificate: CN=${serverHostname} | SHA256=${certInfo.fingerprint}`,
     });
 
-    for (const scenario of scenarios) {
+    const totalTlsWithLoops = scenarios.length * loopCount;
+
+    for (let loop = 0; loop < loopCount; loop++) {
       if (activeServer.aborted) break;
-      send('fuzzer-progress', { scenario: scenario.name, total: scenarios.length, current: results.length + 1 });
-      const result = await activeServer.runScenario(scenario);
-      results.push(result);
-      send('fuzzer-result', result);
-      await new Promise(r => setTimeout(r, 300));
+      if (loopCount > 1) {
+        send('fuzzer-packet', { type: 'info', message: `── Loop ${loop + 1} / ${loopCount} ──` });
+      }
+      for (const scenario of scenarios) {
+        if (activeServer.aborted) break;
+        send('fuzzer-progress', { scenario: scenario.name, total: totalTlsWithLoops, current: results.length + 1 });
+        const result = await activeServer.runScenario(scenario);
+        results.push(result);
+        send('fuzzer-result', result);
+        await new Promise(r => setTimeout(r, 300));
+      }
     }
 
     activeServer = null;

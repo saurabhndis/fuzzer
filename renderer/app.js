@@ -15,6 +15,7 @@
   const selectNoneBtn = document.getElementById('selectNoneBtn');
   const runBtn = document.getElementById('runBtn');
   const stopBtn = document.getElementById('stopBtn');
+  const loopCountInput = document.getElementById('loopCountInput');
   const pcapBtn = document.getElementById('pcapBtn');
   const pcapPathEl = document.getElementById('pcapPath');
   const progressContainer = document.getElementById('progressContainer');
@@ -626,7 +627,8 @@
     }
 
     const scenarioNames = getSelectedScenarios();
-    const totalScenarios = scenarioNames.length || (isPassiveServer ? 1 : 0);
+    const loopCount = Math.max(1, Math.min(1000, parseInt(loopCountInput.value, 10) || 1));
+    const totalScenarios = (scenarioNames.length || (isPassiveServer ? 1 : 0)) * loopCount;
 
     setRunning(true);
     results = [];
@@ -662,6 +664,7 @@
         verbose,
         protocol: activeProtocol,
         dut,
+        loopCount,
       });
 
       if (response.error) {
