@@ -35,8 +35,10 @@
   const distributedBar = document.getElementById('distributedBar');
   const clientAgentHost = document.getElementById('clientAgentHost');
   const clientAgentPort = document.getElementById('clientAgentPort');
+  const clientAgentToken = document.getElementById('clientAgentToken');
   const serverAgentHost = document.getElementById('serverAgentHost');
   const serverAgentPort = document.getElementById('serverAgentPort');
+  const serverAgentToken = document.getElementById('serverAgentToken');
   const clientStatusDot = document.getElementById('clientStatusDot');
   const clientStatusText = document.getElementById('clientStatusText');
   const serverStatusDot = document.getElementById('serverStatusDot');
@@ -143,8 +145,10 @@
   async function handleConnect() {
     const cHost = clientAgentHost.value.trim();
     const cPort = clientAgentPort.value.trim();
+    const cToken = clientAgentToken.value.trim();
     const sHost = serverAgentHost.value.trim();
     const sPort = serverAgentPort.value.trim();
+    const sToken = serverAgentToken.value.trim();
 
     if (!cHost && !sHost) {
       addLogEntry('error', 'Enter at least one agent address');
@@ -159,8 +163,10 @@
       const result = await window.fuzzer.distributedConnect({
         clientHost: cHost || null,
         clientPort: cPort || null,
+        clientToken: cToken || null,
         serverHost: sHost || null,
         serverPort: sPort || null,
+        serverToken: sToken || null,
       });
 
       if (result.client) {
@@ -189,8 +195,10 @@
         disconnectBtn.disabled = false;
         clientAgentHost.disabled = true;
         clientAgentPort.disabled = true;
+        clientAgentToken.disabled = true;
         serverAgentHost.disabled = true;
         serverAgentPort.disabled = true;
+        serverAgentToken.disabled = true;
         startStatusPolling();
       } else {
         connectBtn.disabled = false;
@@ -215,8 +223,10 @@
     disconnectBtn.disabled = true;
     clientAgentHost.disabled = false;
     clientAgentPort.disabled = false;
+    clientAgentToken.disabled = false;
     serverAgentHost.disabled = false;
     serverAgentPort.disabled = false;
+    serverAgentToken.disabled = false;
     addLogEntry('info', 'Disconnected from agents');
   }
 

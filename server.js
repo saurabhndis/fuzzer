@@ -28,6 +28,7 @@ const USAGE = `
     --pcap <file.pcap>      Record packets to PCAP file
     --agent                 Run as remote agent (HTTP control server)
     --control-port <port>   Agent control port (default: 9101)
+    --token <string>        Authentication token for agent mode
 
   Examples:
     node server.js 4433 --scenario all --hostname evil.test --verbose
@@ -58,8 +59,9 @@ async function main() {
   // Agent mode — start HTTP control server instead of running scenarios directly
   if (args.agent) {
     const controlPort = parseInt(args['control-port']) || 9101;
+    const token = args['token'] || null;
     const { startAgent } = require('./lib/agent');
-    startAgent('server', { controlPort });
+    startAgent('server', { controlPort, token });
     process.on('SIGINT', () => process.exit(0));
     return;
   }

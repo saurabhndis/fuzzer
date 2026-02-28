@@ -314,20 +314,20 @@ const send = (channel, data) => {
 
 // Connect to remote agents
 ipcMain.handle('distributed-connect', async (_event, opts) => {
-  const { clientHost, clientPort, serverHost, serverPort } = opts;
+  const { clientHost, clientPort, clientToken, serverHost, serverPort, serverToken } = opts;
   controller = new Controller();
 
   const result = {};
   if (clientHost && clientPort) {
     try {
-      result.client = await controller.connect('client', clientHost, parseInt(clientPort));
+      result.client = await controller.connect('client', clientHost, parseInt(clientPort), clientToken);
     } catch (err) {
       result.clientError = err.message;
     }
   }
   if (serverHost && serverPort) {
     try {
-      result.server = await controller.connect('server', serverHost, parseInt(serverPort));
+      result.server = await controller.connect('server', serverHost, parseInt(serverPort), serverToken);
     } catch (err) {
       result.serverError = err.message;
     }
@@ -488,6 +488,11 @@ ipcMain.handle('close-firewall', () => {
 // --- PAN-OS Utility: make an HTTPS request to the firewall ---
 function panosRequest(host, params) {
   return new Promise((resolve, reject) => {
+    // SSRF Protection: strict hostname/IP validation
+    if (!host || typeof host !== 'string' || !/^[a-zA-Z0-9.\-:]+$/.test(host)) {
+      return reject(new Error('Invalid firewall hostname or IP address'));
+    }
+
     const postBody = new url.URLSearchParams(params).toString();
     const options = {
       hostname: host,
@@ -600,21 +605,55 @@ async function parseXmlToJson(xmlString) {
 // --- PAN-OS IPC Handlers ---
 
 ipcMain.handle('panos:ping', async (_event, { host }) => {
-  const { exec } = require('child_process');
+  const { spawn } = require('child_process');
   return new Promise((resolve) => {
-    const flag = process.platform === 'win32' ? '-n' : '-c';
-    exec(`ping ${flag} 2 -W 2 "${host}"`, { timeout: 10000 }, (error, stdout) => {
-      if (error) {
-        resolve({ reachable: false, output: stdout || error.message });
-      } else {
+    // Basic hostname/IP validation
+    if (!host || typeof host !== 'string' || !/^[a-zA-Z0-9.\-:]+$/.test(host)) {
+      return resolve({ reachable: false, output: 'Invalid hostname or IP address' });
+    }
+
+    const isWin = process.platform === 'win32';
+    const flag = isWin ? '-n' : '-c';
+    const args = [flag, '2', host];
+    
+    // Add timeout flag for non-windows (ping -W)
+    if (!isWin) {
+      args.splice(2, 0, '-W', '2');
+    }
+
+    const child = spawn('ping', args);
+    let stdout = '';
+    let stderr = '';
+
+    child.stdout.on('data', (data) => { stdout += data; });
+    child.stderr.on('data', (data) => { stderr += data; });
+
+    const timer = setTimeout(() => {
+      child.kill();
+      resolve({ reachable: false, output: 'Ping timed out' });
+    }, 10000);
+
+    child.on('close', (code) => {
+      clearTimeout(timer);
+      if (code === 0) {
         resolve({ reachable: true, output: stdout });
+      } else {
+        resolve({ reachable: false, output: stdout || stderr || `Ping failed with code ${code}` });
       }
+    });
+
+    child.on('error', (err) => {
+      clearTimeout(timer);
+      resolve({ reachable: false, output: `Failed to start ping: ${err.message}` });
     });
   });
 });
 
 ipcMain.handle('panos:getApiKey', async (_event, { host, username, password }) => {
-  if (!host || !username || !password) {
+  if (!host || typeof host !== 'string' || !/^[a-zA-Z0-9.\-:]+$/.test(host)) {
+    throw new Error('Invalid firewall hostname or IP address');
+  }
+  if (!username || !password) {
     throw new Error('Host, username, and password are required.');
   }
 
@@ -629,6 +668,9 @@ ipcMain.handle('panos:getApiKey', async (_event, { host, username, password }) =
 });
 
 ipcMain.handle('panos:runCommand', async (_event, { host, apiKey, command }) => {
+  if (!host || typeof host !== 'string' || !/^[a-zA-Z0-9.\-:]+$/.test(host)) {
+    throw new Error('Invalid firewall hostname or IP address');
+  }
   if (!host || !apiKey || !command) {
     throw new Error('Host, API key, and command are required.');
   }
@@ -650,6 +692,9 @@ ipcMain.handle('panos:runCommand', async (_event, { host, apiKey, command }) => 
 });
 
 ipcMain.handle('panos:runConfig', async (_event, { host, apiKey, action, xpath }) => {
+  if (!host || typeof host !== 'string' || !/^[a-zA-Z0-9.\-:]+$/.test(host)) {
+    throw new Error('Invalid firewall hostname or IP address');
+  }
   if (!host || !apiKey) {
     throw new Error('Host and API key are required.');
   }
@@ -672,6 +717,9 @@ ipcMain.handle('panos:runConfig', async (_event, { host, apiKey, action, xpath }
 });
 
 ipcMain.handle('panos:systemInfo', async (_event, { host, apiKey }) => {
+  if (!host || typeof host !== 'string' || !/^[a-zA-Z0-9.\-:]+$/.test(host)) {
+    throw new Error('Invalid firewall hostname or IP address');
+  }
   const xml = await panosRequest(host, {
     type: 'op',
     cmd: '<show><system><info></info></system></show>',
