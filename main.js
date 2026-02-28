@@ -444,7 +444,6 @@ function createFirewallWindow(dutConfig) {
     height: 800,
     minWidth: 900,
     minHeight: 600,
-    parent: mainWindow,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
