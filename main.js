@@ -12,6 +12,8 @@ const { listQuicScenarios, getQuicScenario, QUIC_CATEGORY_DEFAULT_DISABLED } = r
 const { computeOverallGrade } = require('./lib/grader');
 const { computeExpected } = require('./lib/compute-expected');
 const { Controller } = require('./lib/controller');
+const { WellBehavedServer } = require('./lib/well-behaved-server');
+const { WellBehavedClient } = require('./lib/well-behaved-client');
 
 let mainWindow;
 let firewallWindow = null;
@@ -120,7 +122,7 @@ ipcMain.handle('list-scenarios', () => {
 
 // Run fuzzer
 ipcMain.handle('run-fuzzer', async (event, opts) => {
-  const { mode, host, port, scenarioNames, delay, timeout, pcapFile, verbose, hostname, protocol, dut, loopCount: rawLoop } = opts;
+  const { mode, host, port, scenarioNames, delay, timeout, pcapFile, verbose, hostname, protocol, dut, loopCount: rawLoop, localMode } = opts;
   const loopCount = Math.max(1, Math.min(1000, parseInt(rawLoop, 10) || 1));
 
   const send = (channel, data) => {
@@ -149,17 +151,39 @@ ipcMain.handle('run-fuzzer', async (event, opts) => {
 
   // ── Client mode ───────────────────────────────────────────────────────────────
   if (mode === 'client') {
-    if (typeof host !== 'string' || !/^[a-zA-Z0-9.\-]+$/.test(host)) {
+    if (!localMode && (typeof host !== 'string' || !/^[a-zA-Z0-9.\-]+$/.test(host))) {
       return { error: 'Invalid hostname' };
     }
     if (scenarios.length === 0) {
       return { error: 'No valid scenarios selected' };
     }
 
+    // Local mode: start a well-behaved server as the target
+    let localServer = null;
+    let clientHost = host;
+    let clientPort = portNum;
+
+    if (localMode) {
+      localServer = new WellBehavedServer({ port: portNum, hostname: 'localhost', logger });
+      try {
+        if (protocol === 'quic') await localServer.startQuic();
+        else if (protocol === 'h2') await localServer.startH2();
+        else await localServer.startTLS();
+      } catch (err) {
+        return { error: `Failed to start local server: ${err.message}` };
+      }
+      clientHost = 'localhost';
+      clientPort = localServer.actualPort;
+      send('fuzzer-packet', {
+        type: 'info',
+        message: `Local ${(protocol || 'tls').toUpperCase()} server started on port ${clientPort}`,
+      });
+    }
+
     const totalWithLoops = scenarios.length * loopCount;
 
     activeClient = new UnifiedClient({
-      host, port: portNum,
+      host: clientHost, port: clientPort,
       timeout: timeout || 5000, delay: delay || 100,
       logger, pcapFile: pcapFile || null,
       dut,
@@ -182,6 +206,7 @@ ipcMain.handle('run-fuzzer', async (event, opts) => {
 
     activeClient.close();
     activeClient = null;
+    if (localServer) localServer.stop();
 
     const report = computeOverallGrade(results);
     send('fuzzer-report', report);
@@ -191,6 +216,23 @@ ipcMain.handle('run-fuzzer', async (event, opts) => {
   // ── Server mode ───────────────────────────────────────────────────────────────
   if (mode === 'server') {
     const serverHostname = hostname || host || 'localhost';
+
+    // Helper: spawn a well-behaved client for local mode server tests
+    function spawnLocalClient(proto, delayMs) {
+      if (!localMode) return null;
+      const client = new WellBehavedClient({ host: 'localhost', port: portNum, logger });
+      const promise = new Promise(resolve => {
+        setTimeout(async () => {
+          try {
+            if (proto === 'quic') await client.connectQuic();
+            else if (proto === 'h2') await client.connectH2();
+            else await client.connectTLS();
+          } catch (_) {}
+          resolve(client);
+        }, delayMs);
+      });
+      return promise;
+    }
 
     activeServer = new UnifiedServer({
       port: portNum, hostname: serverHostname,
@@ -220,7 +262,9 @@ ipcMain.handle('run-fuzzer', async (event, opts) => {
         // Run server-side scenarios (AJ) — each waits for a client to connect
         send('fuzzer-packet', {
           type: 'info',
-          message: `HTTP/2 server running server-side scenarios — connect an HTTP/2 client to port ${portNum}`,
+          message: localMode
+            ? `HTTP/2 server running server-side scenarios with local client on port ${portNum}`
+            : `HTTP/2 server running server-side scenarios — connect an HTTP/2 client to port ${portNum}`,
         });
 
         for (let loop = 0; loop < loopCount; loop++) {
@@ -231,7 +275,9 @@ ipcMain.handle('run-fuzzer', async (event, opts) => {
           for (const scenario of scenarios) {
             if (activeServer.aborted) break;
             send('fuzzer-progress', { scenario: scenario.name, total: totalH2WithLoops, current: results.length + 1 });
+            const clientPromise = spawnLocalClient('h2', 300);
             const result = await activeServer.runScenario(scenario);
+            if (clientPromise) { const c = await clientPromise; c.stop(); }
             results.push(result);
             send('fuzzer-result', result);
             await new Promise(r => setTimeout(r, 500));
@@ -248,6 +294,66 @@ ipcMain.handle('run-fuzzer', async (event, opts) => {
       send('fuzzer-packet', {
         type: 'info',
         message: `HTTP/2 server is running — connect a fuzzing client to port ${portNum} (TLS+ALPN h2)`,
+      });
+
+      await activeServer.waitForStop();
+      activeServer = null;
+
+      const report = computeOverallGrade([]);
+      send('fuzzer-report', report);
+      return { results: [] };
+    }
+
+    if (protocol === 'quic') {
+      // Start the QUIC server
+      send('fuzzer-packet', {
+        type: 'info',
+        message: `QUIC server starting on UDP port ${portNum} | hostname=${certInfo.hostname}`,
+      });
+
+      try {
+        await activeServer.startQuic();
+      } catch (err) {
+        activeServer = null;
+        return { error: `Failed to start QUIC server: ${err.message}` };
+      }
+
+      if (scenarios.length > 0) {
+        const totalQuicWithLoops = scenarios.length * loopCount;
+        send('fuzzer-packet', {
+          type: 'info',
+          message: localMode
+            ? `QUIC server running server-side scenarios with local client on UDP port ${portNum}`
+            : `QUIC server running server-side scenarios — connect a QUIC client to UDP port ${portNum}`,
+        });
+
+        for (let loop = 0; loop < loopCount; loop++) {
+          if (activeServer.aborted) break;
+          if (loopCount > 1) {
+            send('fuzzer-packet', { type: 'info', message: `── Loop ${loop + 1} / ${loopCount} ──` });
+          }
+          for (const scenario of scenarios) {
+            if (activeServer.aborted) break;
+            send('fuzzer-progress', { scenario: scenario.name, total: totalQuicWithLoops, current: results.length + 1 });
+            const clientPromise = spawnLocalClient('quic', 300);
+            const result = await activeServer.runScenario(scenario);
+            if (clientPromise) { const c = await clientPromise; c.stop(); }
+            results.push(result);
+            send('fuzzer-result', result);
+            await new Promise(r => setTimeout(r, 500));
+          }
+        }
+
+        activeServer = null;
+        const report = computeOverallGrade(results);
+        send('fuzzer-report', report);
+        return { results };
+      }
+
+      // Passive mode: listen until stopped
+      send('fuzzer-packet', {
+        type: 'info',
+        message: `QUIC server is running — connect a QUIC client to UDP port ${portNum}`,
       });
 
       await activeServer.waitForStop();
@@ -278,7 +384,9 @@ ipcMain.handle('run-fuzzer', async (event, opts) => {
       for (const scenario of scenarios) {
         if (activeServer.aborted) break;
         send('fuzzer-progress', { scenario: scenario.name, total: totalTlsWithLoops, current: results.length + 1 });
+        const clientPromise = spawnLocalClient('tls', 500);
         const result = await activeServer.runScenario(scenario);
+        if (clientPromise) { const c = await clientPromise; c.stop(); }
         results.push(result);
         send('fuzzer-result', result);
         await new Promise(r => setTimeout(r, 300));

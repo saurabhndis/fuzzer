@@ -31,6 +31,7 @@
   const summaryBar = document.getElementById('summaryBar');
   const summaryText = document.getElementById('summaryText');
   const statusBadge = document.getElementById('statusBadge');
+  const localModeCheck = document.getElementById('localModeCheck');
   const distributedCheck = document.getElementById('distributedCheck');
   const distributedBar = document.getElementById('distributedBar');
   const clientAgentHost = document.getElementById('clientAgentHost');
@@ -82,18 +83,35 @@
   let unsubProgress = null;
   let unsubReport = null;
   let lastReport = null;
+  let localMode = false;
   let distributedMode = false;
   let agentsConnected = false;
   let unsubAgentDone = null;
   let unsubAgentStatus = null;
   let statusPollTimer = null;
 
-  // Mode toggle — hide host for server mode
+  // Mode toggle — hide host for server mode (unless local mode is on)
   modeSelect.addEventListener('change', () => {
     if (!distributedMode) {
-      hostGroup.style.display = modeSelect.value === 'server' ? 'none' : 'flex';
+      hostGroup.style.display = (modeSelect.value === 'server' && !localMode) ? 'none' : 'flex';
     }
     filterScenariosBySide();
+  });
+
+  // Local target mode toggle
+  localModeCheck.addEventListener('change', () => {
+    localMode = localModeCheck.checked;
+    if (localMode) {
+      hostInput.value = 'localhost';
+      hostInput.disabled = true;
+      // Show host group even in server mode so user can see it's localhost
+      if (!distributedMode) hostGroup.style.display = 'flex';
+    } else {
+      hostInput.disabled = false;
+      if (!distributedMode && modeSelect.value === 'server') {
+        hostGroup.style.display = 'none';
+      }
+    }
   });
 
   // Distributed mode toggle
@@ -104,10 +122,15 @@
       // In distributed mode, show all scenarios (both sides)
       modeSelect.disabled = true;
       hostGroup.style.display = 'none';
+      localModeCheck.checked = false;
+      localModeCheck.disabled = true;
+      localMode = false;
+      hostInput.disabled = false;
       renderAllScenarios();
     } else {
       modeSelect.disabled = false;
-      hostGroup.style.display = modeSelect.value === 'server' ? 'none' : 'flex';
+      localModeCheck.disabled = false;
+      hostGroup.style.display = modeSelect.value === 'server' && !localMode ? 'none' : 'flex';
       if (agentsConnected) {
         handleDisconnect();
       }
@@ -635,7 +658,7 @@
     const isPassiveServer = (activeProtocol === 'h2' || activeProtocol === 'quic') && mode === 'server' && getSelectedScenarios().length === 0;
 
     if (!isPassiveServer) {
-      if (mode === 'client' && !host) {
+      if (mode === 'client' && !host && !localMode) {
         addLogEntry('error', 'Please enter a hostname');
         return;
       }
@@ -687,12 +710,13 @@
 
     try {
       const response = await window.fuzzer.run({
-        mode, host, port, scenarioNames, delay, timeout,
+        mode, host: localMode ? 'localhost' : host, port, scenarioNames, delay, timeout,
         pcapFile: pcapFile || null,
         verbose,
         protocol: activeProtocol,
         dut,
         loopCount,
+        localMode,
       });
 
       if (response.error) {
