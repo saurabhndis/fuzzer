@@ -34,12 +34,6 @@
   const localModeCheck = document.getElementById('localModeCheck');
   const distributedCheck = document.getElementById('distributedCheck');
   const distributedBar = document.getElementById('distributedBar');
-  const clientAgentHost = document.getElementById('clientAgentHost');
-  const clientAgentPort = document.getElementById('clientAgentPort');
-  const clientAgentToken = document.getElementById('clientAgentToken');
-  const serverAgentHost = document.getElementById('serverAgentHost');
-  const serverAgentPort = document.getElementById('serverAgentPort');
-  const serverAgentToken = document.getElementById('serverAgentToken');
   const clientStatusDot = document.getElementById('clientStatusDot');
   const clientStatusText = document.getElementById('clientStatusText');
   const serverStatusDot = document.getElementById('serverStatusDot');
@@ -167,62 +161,40 @@
   disconnectBtn.addEventListener('click', handleDisconnect);
 
   async function handleConnect() {
-    const cHost = clientAgentHost.value.trim();
-    const cPort = clientAgentPort.value.trim();
-    const cToken = clientAgentToken.value.trim();
-    const sHost = serverAgentHost.value.trim();
-    const sPort = serverAgentPort.value.trim();
-    const sToken = serverAgentToken.value.trim();
-
-    if (!cHost && !sHost) {
-      addLogEntry('error', 'Enter at least one agent address');
-      return;
-    }
-
     setAgentStatus('client', 'connecting');
     setAgentStatus('server', 'connecting');
     connectBtn.disabled = true;
 
     try {
       const result = await window.fuzzer.distributedConnect({
-        clientHost: cHost || null,
-        clientPort: cPort || null,
-        clientToken: cToken || null,
-        serverHost: sHost || null,
-        serverPort: sPort || null,
-        serverToken: sToken || null,
+        clientHost: 'localhost',
+        clientPort: '9100',
+        clientToken: null,
+        serverHost: 'localhost',
+        serverPort: '9101',
+        serverToken: null,
       });
 
       if (result.client) {
         setAgentStatus('client', result.client.status || 'idle');
-        addLogEntry('info', `Client agent connected: ${cHost}:${cPort} (${result.client.status})`);
+        addLogEntry('info', `Client agent connected: localhost:9100 (${result.client.status})`);
       } else if (result.clientError) {
         setAgentStatus('client', 'error');
         addLogEntry('error', `Client agent: ${result.clientError}`);
-      } else if (!cHost) {
-        setAgentStatus('client', 'idle');
       }
 
       if (result.server) {
         setAgentStatus('server', result.server.status || 'idle');
-        addLogEntry('info', `Server agent connected: ${sHost}:${sPort} (${result.server.status})`);
+        addLogEntry('info', `Server agent connected: localhost:9101 (${result.server.status})`);
       } else if (result.serverError) {
         setAgentStatus('server', 'error');
         addLogEntry('error', `Server agent: ${result.serverError}`);
-      } else if (!sHost) {
-        setAgentStatus('server', 'idle');
       }
 
       const anyConnected = result.client || result.server;
       if (anyConnected) {
         agentsConnected = true;
         disconnectBtn.disabled = false;
-        clientAgentHost.disabled = true;
-        clientAgentPort.disabled = true;
-        clientAgentToken.disabled = true;
-        serverAgentHost.disabled = true;
-        serverAgentPort.disabled = true;
-        serverAgentToken.disabled = true;
         startStatusPolling();
       } else {
         connectBtn.disabled = false;
@@ -245,12 +217,6 @@
     setAgentStatus('server', 'idle');
     connectBtn.disabled = false;
     disconnectBtn.disabled = true;
-    clientAgentHost.disabled = false;
-    clientAgentPort.disabled = false;
-    clientAgentToken.disabled = false;
-    serverAgentHost.disabled = false;
-    serverAgentPort.disabled = false;
-    serverAgentToken.disabled = false;
     addLogEntry('info', 'Disconnected from agents');
   }
 

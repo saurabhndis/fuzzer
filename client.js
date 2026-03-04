@@ -9,13 +9,18 @@ const { getScenario, getScenariosByCategory, getClientScenarios, CATEGORY_DEFAUL
 const USAGE = `
   TLS/TCP Protocol Fuzzer — Client Mode
 
-  Runs client-side fuzzing scenarios against a target TLS server.
-  Connects to the target and sends fuzzed TLS handshake messages.
+  Starts a client agent with an HTTP control channel, or runs
+  client-side fuzzing scenarios directly against a target TLS server.
 
   Usage:
-    node client.js <host> <port> [options]
+    node client.js                          Start client agent (control on 0.0.0.0:9100)
+    node client.js <host> <port> [options]  Run scenarios directly
 
-  Options:
+  Agent options:
+    --control-port <port>   Agent control port (default: 9100)
+    --token <string>        Authentication token for agent mode
+
+  Direct-run options:
     --scenario <name|all>   Run specific scenario or all client scenarios
     --category <A-Y>        Run all scenarios in a category
     --delay <ms>            Delay between actions (default: 100)
@@ -23,11 +28,9 @@ const USAGE = `
     --verbose               Show hex dumps of all packets
     --json                  Output results as JSON
     --pcap <file.pcap>      Record packets to PCAP file
-    --agent                 Run as remote agent (HTTP control server)
-    --control-port <port>   Agent control port (default: 9100)
-    --token <string>        Authentication token for agent mode
 
   Examples:
+    node client.js
     node client.js google.com 443 --scenario all
     node client.js example.com 443 --scenario duplicate-client-hello --verbose
     node client.js 192.168.1.100 443 --category A --pcap fuzz.pcap
@@ -38,7 +41,7 @@ function parseArgs(argv) {
   for (let i = 0; i < argv.length; i++) {
     if (argv[i].startsWith('--')) {
       const key = argv[i].slice(2);
-      if (key === 'verbose' || key === 'json' || key === 'agent') {
+      if (key === 'verbose' || key === 'json') {
         args[key] = true;
       } else if (i + 1 < argv.length) {
         args[key] = argv[++i];
@@ -53,8 +56,11 @@ function parseArgs(argv) {
 async function main() {
   const args = parseArgs(process.argv.slice(2));
 
-  // Agent mode — start HTTP control server instead of running scenarios directly
-  if (args.agent) {
+  const host = args._[0];
+  const port = parseInt(args._[1]);
+
+  // Agent mode — no host/port args means start the control channel
+  if (!host || !port) {
     const controlPort = parseInt(args['control-port']) || 9100;
     const token = args['token'] || null;
     const { startAgent } = require('./lib/agent');
@@ -63,12 +69,9 @@ async function main() {
     return;
   }
 
-  const host = args._[0];
-  const port = parseInt(args._[1]);
-
-  if (!host || !port || port < 1 || port > 65535) {
+  if (port < 1 || port > 65535) {
     console.log(USAGE);
-    process.exit(!host && !port ? 0 : 1);
+    process.exit(1);
   }
 
   const delay = parseInt(args.delay) || 100;

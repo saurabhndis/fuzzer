@@ -23,7 +23,7 @@
         </select>
       </div>
       <div class="toolbar-group" id="hostGroup">
-        <label>Host</label>
+        <label>Target</label>
         <input type="text" id="hostInput" placeholder="e.g. google.com" value="google.com">
       </div>
       <div class="toolbar-group">
@@ -64,19 +64,13 @@
     <div class="distributed-bar" id="distributedBar" style="display:none;">
       <div class="agent-section">
         <span class="agent-label">Client Agent</span>
-        <input type="text" id="clientAgentHost" class="agent-input" placeholder="host / IP" value="localhost">
-        <input type="number" id="clientAgentPort" class="agent-port-input" placeholder="9100" value="9100" min="1" max="65535">
-        <input type="password" id="clientAgentToken" class="agent-input" placeholder="token" style="width: 80px;">
         <span class="agent-status-dot agent-idle" id="clientStatusDot"></span>
-        <span class="agent-status-text" id="clientStatusText">IDLE</span>
+        <span class="agent-status-text" id="clientStatusText">DISCONNECTED</span>
       </div>
       <div class="agent-section">
         <span class="agent-label">Server Agent</span>
-        <input type="text" id="serverAgentHost" class="agent-input" placeholder="host / IP" value="localhost">
-        <input type="number" id="serverAgentPort" class="agent-port-input" placeholder="9101" value="9101" min="1" max="65535">
-        <input type="password" id="serverAgentToken" class="agent-input" placeholder="token" style="width: 80px;">
         <span class="agent-status-dot agent-idle" id="serverStatusDot"></span>
-        <span class="agent-status-text" id="serverStatusText">IDLE</span>
+        <span class="agent-status-text" id="serverStatusText">DISCONNECTED</span>
       </div>
       <div class="agent-actions">
         <button id="connectBtn" class="btn btn-connect">CONNECT</button>
