@@ -253,6 +253,7 @@ ipcMain.handle('run-fuzzer', async (event, opts) => {
       try {
         await activeServer.startH2();
       } catch (err) {
+        if (activeServer) activeServer.close();
         activeServer = null;
         return { error: `Failed to start HTTP/2 server: ${err.message}` };
       }
@@ -284,6 +285,7 @@ ipcMain.handle('run-fuzzer', async (event, opts) => {
           }
         }
 
+        if (activeServer) activeServer.close();
         activeServer = null;
         const report = computeOverallGrade(results);
         send('fuzzer-report', report);
@@ -297,6 +299,7 @@ ipcMain.handle('run-fuzzer', async (event, opts) => {
       });
 
       await activeServer.waitForStop();
+      if (activeServer) activeServer.close();
       activeServer = null;
 
       const report = computeOverallGrade([]);
@@ -314,6 +317,7 @@ ipcMain.handle('run-fuzzer', async (event, opts) => {
       try {
         await activeServer.startQuic();
       } catch (err) {
+        if (activeServer) activeServer.close();
         activeServer = null;
         return { error: `Failed to start QUIC server: ${err.message}` };
       }
@@ -344,6 +348,7 @@ ipcMain.handle('run-fuzzer', async (event, opts) => {
           }
         }
 
+        if (activeServer) activeServer.close();
         activeServer = null;
         const report = computeOverallGrade(results);
         send('fuzzer-report', report);
@@ -357,6 +362,7 @@ ipcMain.handle('run-fuzzer', async (event, opts) => {
       });
 
       await activeServer.waitForStop();
+      if (activeServer) activeServer.close();
       activeServer = null;
 
       const report = computeOverallGrade([]);
@@ -393,6 +399,7 @@ ipcMain.handle('run-fuzzer', async (event, opts) => {
       }
     }
 
+    if (activeServer) activeServer.close();
     activeServer = null;
 
     const report = computeOverallGrade(results);
