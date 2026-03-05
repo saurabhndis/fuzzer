@@ -12,7 +12,8 @@
     "agent-server": "node server.js --agent"
   },
   "dependencies": {
-    "xml2js": "^0.6.2"
+    "xml2js": "^0.6.2",
+    "raw-socket": "^1.7.0"
   },
   "devDependencies": {
     "electron": "^40.6.0"

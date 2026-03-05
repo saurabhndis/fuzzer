@@ -3,8 +3,12 @@
 
 const { FuzzerClient } = require('./lib/fuzzer-client');
 const { FuzzerServer } = require('./lib/fuzzer-server');
+const { UnifiedClient } = require('./lib/unified-client');
+const { UnifiedServer } = require('./lib/unified-server');
 const { Logger } = require('./lib/logger');
 const { listScenarios, getScenario, getScenariosByCategory, getClientScenarios, getServerScenarios, CATEGORY_DEFAULT_DISABLED } = require('./lib/scenarios');
+const { getTcpScenario, getTcpScenariosByCategory, getTcpClientScenarios, getTcpServerScenarios, listTcpScenarios, TCP_CATEGORIES } = require('./lib/tcp-scenarios');
+const { isRawAvailable } = require('./lib/raw-tcp');
 const { generateServerCert } = require('./lib/cert-gen');
 
 const USAGE = `
@@ -21,6 +25,7 @@ const USAGE = `
     --hostname <name>       Server cert CN/SAN (default: localhost)
     --delay <ms>            Delay between actions (default: 100)
     --timeout <ms>          Connection timeout (default: 5000)
+    --protocol <type>       Protocol: tls (default), h2, quic, raw-tcp
     --verbose               Show hex dumps of all packets
     --json                  Output results as JSON
     --pcap <file.pcap>      Record packets to PCAP file
@@ -72,6 +77,19 @@ async function main() {
       }
       console.log('');
     }
+
+    // TCP scenarios
+    const tcpGroups = listTcpScenarios();
+    const rawStatus = isRawAvailable() ? '\x1b[32m[available]\x1b[0m' : '\x1b[31m[unavailable — needs CAP_NET_RAW]\x1b[0m';
+    console.log(`  \x1b[1m\x1b[33mRaw TCP Scenarios\x1b[0m ${rawStatus}\n`);
+    for (const [cat, group] of Object.entries(tcpGroups)) {
+      console.log(`  \x1b[1m\x1b[35m${cat}: ${group.label}\x1b[0m (${group.scenarios.length} scenarios) \x1b[33m[opt-in]\x1b[0m`);
+      for (const s of group.scenarios) {
+        const side = s.side === 'client' ? '\x1b[36mclient\x1b[0m' : '\x1b[33mserver\x1b[0m';
+        console.log(`    ${s.name.padEnd(40)} [${side}] \x1b[90m${s.description}\x1b[0m`);
+      }
+      console.log('');
+    }
     process.exit(0);
   }
 
@@ -79,6 +97,7 @@ async function main() {
   const delay = parseInt(args.delay) || 100;
   const timeout = parseInt(args.timeout) || 5000;
   const pcapFile = args.pcap || null;
+  const protocol = args.protocol || 'tls';
 
   if (command === 'client') {
     const host = args._[1];
@@ -89,22 +108,37 @@ async function main() {
       process.exit(1);
     }
 
+    const useRawTcp = protocol === 'raw-tcp';
+
+    if (useRawTcp && !isRawAvailable()) {
+      console.error('\x1b[33mWarning: Raw sockets not available. Requires CAP_NET_RAW on Linux.\x1b[0m');
+      console.error('  Run: sudo setcap cap_net_raw+ep $(which node)');
+      console.error('  Raw TCP scenarios will be skipped.\n');
+    }
+
     // Determine which scenarios to run
     let scenarios;
     if (args.category) {
-      scenarios = getScenariosByCategory(args.category).filter(s => s.side === 'client');
+      const catScenarios = useRawTcp
+        ? getTcpScenariosByCategory(args.category)
+        : getScenariosByCategory(args.category);
+      scenarios = catScenarios.filter(s => s.side === 'client');
       if (scenarios.length === 0) {
         console.error(`No client scenarios in category ${args.category}`);
         process.exit(1);
       }
     } else if (args.scenario === 'all') {
-      scenarios = getClientScenarios().filter(s => !CATEGORY_DEFAULT_DISABLED.has(s.category));
+      if (useRawTcp) {
+        scenarios = getTcpClientScenarios();
+      } else {
+        scenarios = getClientScenarios().filter(s => !CATEGORY_DEFAULT_DISABLED.has(s.category));
+      }
       if (scenarios.length === 0) {
         console.error('No enabled client scenarios found');
         process.exit(1);
       }
     } else if (args.scenario) {
-      const s = getScenario(args.scenario);
+      const s = useRawTcp ? getTcpScenario(args.scenario) : getScenario(args.scenario);
       if (!s) {
         console.error(`Unknown scenario: ${args.scenario}`);
         process.exit(1);
@@ -115,12 +149,15 @@ async function main() {
       }
       scenarios = [s];
     } else {
-      console.error('Error: specify --scenario <name|all> or --category <A-H>');
+      console.error('Error: specify --scenario <name|all> or --category <A-H|RA-RG>');
       console.log(USAGE);
       process.exit(1);
     }
 
-    const client = new FuzzerClient({ host, port, timeout, delay, logger, pcapFile });
+    // Use UnifiedClient for raw-tcp (or h2/quic), FuzzerClient for plain TLS
+    const client = (useRawTcp || protocol === 'h2' || protocol === 'quic')
+      ? new UnifiedClient({ host, port, timeout, delay, logger, pcapFile })
+      : new FuzzerClient({ host, port, timeout, delay, logger, pcapFile });
 
     // Handle ctrl+c
     process.on('SIGINT', () => {
@@ -150,17 +187,26 @@ async function main() {
       process.exit(1);
     }
 
+    const useRawTcp = protocol === 'raw-tcp';
+
     let scenarios;
     if (args.category) {
-      scenarios = getScenariosByCategory(args.category).filter(s => s.side === 'server');
+      const catScenarios = useRawTcp
+        ? getTcpScenariosByCategory(args.category)
+        : getScenariosByCategory(args.category);
+      scenarios = catScenarios.filter(s => s.side === 'server');
     } else if (args.scenario === 'all') {
-      scenarios = getServerScenarios().filter(s => !CATEGORY_DEFAULT_DISABLED.has(s.category));
+      if (useRawTcp) {
+        scenarios = getTcpServerScenarios();
+      } else {
+        scenarios = getServerScenarios().filter(s => !CATEGORY_DEFAULT_DISABLED.has(s.category));
+      }
       if (scenarios.length === 0) {
         console.error('No enabled server scenarios found');
         process.exit(1);
       }
     } else if (args.scenario) {
-      const s = getScenario(args.scenario);
+      const s = useRawTcp ? getTcpScenario(args.scenario) : getScenario(args.scenario);
       if (!s) {
         console.error(`Unknown scenario: ${args.scenario}`);
         process.exit(1);
@@ -171,7 +217,7 @@ async function main() {
       }
       scenarios = [s];
     } else {
-      console.error('Error: specify --scenario <name|all> or --category <A-H>');
+      console.error('Error: specify --scenario <name|all> or --category <A-H|RA-RG>');
       console.log(USAGE);
       process.exit(1);
     }
@@ -181,11 +227,18 @@ async function main() {
     const fp = certInfo.fingerprint.match(/.{2}/g).join(':').toUpperCase();
     logger.info(`Server certificate: CN=${hostname} | SHA256=${fp}`);
 
-    const server = new FuzzerServer({
-      port, hostname, timeout, delay, logger, pcapFile,
-      cert: certInfo.certDER,
-      certInfo,
-    });
+    // Use UnifiedServer for raw-tcp, FuzzerServer for plain TLS
+    const server = (useRawTcp || protocol === 'h2' || protocol === 'quic')
+      ? new UnifiedServer({
+          port, hostname, timeout, delay, logger, pcapFile,
+          cert: certInfo.certDER,
+          certInfo,
+        })
+      : new FuzzerServer({
+          port, hostname, timeout, delay, logger, pcapFile,
+          cert: certInfo.certDER,
+          certInfo,
+        });
 
     process.on('SIGINT', () => {
       server.abort();

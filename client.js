@@ -2,9 +2,11 @@
 // TLS/TCP Protocol Fuzzer — Standalone Client
 // Run client-side fuzzing scenarios independently against any target
 
-const { FuzzerClient } = require('./lib/fuzzer-client');
+const { UnifiedClient } = require('./lib/unified-client');
 const { Logger } = require('./lib/logger');
 const { getScenario, getScenariosByCategory, getClientScenarios, CATEGORY_DEFAULT_DISABLED } = require('./lib/scenarios');
+const { getTcpScenario, getTcpScenariosByCategory, getTcpClientScenarios } = require('./lib/tcp-scenarios');
+const { isRawAvailable } = require('./lib/raw-tcp');
 
 const USAGE = `
   TLS/TCP Protocol Fuzzer — Client Mode
@@ -22,7 +24,8 @@ const USAGE = `
 
   Direct-run options:
     --scenario <name|all>   Run specific scenario or all client scenarios
-    --category <A-Y>        Run all scenarios in a category
+    --category <A-Z|RA-RG>  Run all scenarios in a category
+    --protocol <tls|raw-tcp|h2|quic> Protocol type (default: tls)
     --delay <ms>            Delay between actions (default: 100)
     --timeout <ms>          Connection timeout (default: 5000)
     --verbose               Show hex dumps of all packets
@@ -32,8 +35,8 @@ const USAGE = `
   Examples:
     node client.js
     node client.js google.com 443 --scenario all
-    node client.js example.com 443 --scenario duplicate-client-hello --verbose
-    node client.js 192.168.1.100 443 --category A --pcap fuzz.pcap
+    node client.js example.com 443 --scenario syn-flood-100 --protocol raw-tcp
+    node client.js 192.168.1.100 443 --category RA --protocol raw-tcp --pcap fuzz.pcap
 `;
 
 function parseArgs(argv) {
@@ -77,40 +80,57 @@ async function main() {
   const delay = parseInt(args.delay) || 100;
   const timeout = parseInt(args.timeout) || 5000;
   const pcapFile = args.pcap || null;
+  const protocol = args.protocol || 'tls';
+  const useRawTcp = protocol === 'raw-tcp';
+
+  if (useRawTcp && !isRawAvailable()) {
+    console.warn('\x1b[33mWarning: Raw sockets not available. Requires CAP_NET_RAW on Linux.\x1b[0m');
+  }
 
   console.log('');
   console.log('  \x1b[1m\x1b[36mTLS/TCP Protocol Fuzzer — Client\x1b[0m');
   console.log('');
   console.log(`  \x1b[90mTarget\x1b[0m        ${host}:${port}`);
+  console.log(`  \x1b[90mProtocol\x1b[0m      ${protocol}`);
   console.log('');
 
   // Determine which scenarios to run
   let scenarios;
   if (args.category) {
-    scenarios = getScenariosByCategory(args.category).filter(s => s.side === 'client');
+    const cat = args.category.toUpperCase();
+    const isTcpCat = cat.startsWith('R');
+    scenarios = isTcpCat 
+      ? getTcpScenariosByCategory(cat) 
+      : getScenariosByCategory(cat);
+    scenarios = scenarios.filter(s => s.side === 'client');
+    
     if (scenarios.length === 0) {
       console.error(`No client scenarios in category ${args.category}`);
       process.exit(1);
     }
   } else if (args.scenario === 'all') {
-    scenarios = getClientScenarios().filter(s => !CATEGORY_DEFAULT_DISABLED.has(s.category));
+    if (useRawTcp) {
+      scenarios = getTcpClientScenarios();
+    } else {
+      scenarios = getClientScenarios().filter(s => !CATEGORY_DEFAULT_DISABLED.has(s.category));
+    }
     if (scenarios.length === 0) {
       console.error('No enabled client scenarios found');
       process.exit(1);
     }
   } else if (args.scenario) {
-    const s = getScenario(args.scenario);
+    const s = useRawTcp ? getTcpScenario(args.scenario) : getScenario(args.scenario);
     if (!s) {
       console.error(`Unknown scenario: ${args.scenario}`);
       process.exit(1);
     }
     if (s.side !== 'client') {
-      console.error(`Scenario "${args.scenario}" is a server-side scenario. Use: node server.js`);
+      console.error(`Scenario "${args.scenario}" is a server-side scenario.`);
       process.exit(1);
     }
     scenarios = [s];
   } else {
-    console.error('Error: specify --scenario <name|all> or --category <A-Y>');
+    console.error('Error: specify --scenario <name|all> or --category <A-Z|RA-RG>');
     console.log(USAGE);
     process.exit(1);
   }
@@ -119,7 +139,7 @@ async function main() {
   console.log('');
 
   const logger = new Logger({ verbose: args.verbose, json: args.json });
-  const client = new FuzzerClient({ host, port, timeout, delay, logger, pcapFile });
+  const client = new UnifiedClient({ host, port, timeout, delay, logger, pcapFile });
 
   // Handle ctrl+c
   process.on('SIGINT', () => {

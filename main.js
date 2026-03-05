@@ -9,6 +9,8 @@ const { Logger } = require('./lib/logger');
 const { listScenarios, getScenario, CATEGORY_DEFAULT_DISABLED } = require('./lib/scenarios');
 const { listHttp2Scenarios, getHttp2Scenario, HTTP2_CATEGORY_DEFAULT_DISABLED } = require('./lib/http2-scenarios');
 const { listQuicScenarios, getQuicScenario, QUIC_CATEGORY_DEFAULT_DISABLED } = require('./lib/quic-scenarios');
+const { listTcpScenarios, getTcpScenario, TCP_CATEGORIES, TCP_CATEGORY_SEVERITY } = require('./lib/tcp-scenarios');
+const { isRawAvailable } = require('./lib/raw-tcp');
 const { computeOverallGrade } = require('./lib/grader');
 const { computeExpected } = require('./lib/compute-expected');
 const { Controller } = require('./lib/controller');
@@ -107,6 +109,18 @@ ipcMain.handle('list-scenarios', () => {
     });
   }
 
+  // Raw TCP scenarios
+  const tcpGroups = listTcpScenarios();
+  const tcpStripped = {};
+  for (const [cat, group] of Object.entries(tcpGroups)) {
+    tcpStripped[cat] = group.scenarios.map(s => ({
+      name: s.name,
+      category: cat,
+      description: s.description,
+      side: s.side,
+    }));
+  }
+
   return {
     categories,
     scenarios: stripped,
@@ -117,6 +131,9 @@ ipcMain.handle('list-scenarios', () => {
     quicCategories,
     quicScenarios: quicStripped,
     quicDefaultDisabled: [...QUIC_CATEGORY_DEFAULT_DISABLED],
+    tcpCategories: TCP_CATEGORIES,
+    tcpScenarios: tcpStripped,
+    rawAvailable: isRawAvailable(),
   };
 });
 
@@ -143,9 +160,10 @@ ipcMain.handle('run-fuzzer', async (event, opts) => {
 
   // Resolve scenario objects from names (try TLS lookup, then HTTP/2, then QUIC)
   const lookup = (name) => {
+    if (protocol === 'raw-tcp') return getTcpScenario(name);
     if (protocol === 'quic') return getQuicScenario(name);
     if (protocol === 'h2') return getHttp2Scenario(name);
-    return getScenario(name) || getHttp2Scenario(name) || getQuicScenario(name);
+    return getScenario(name) || getHttp2Scenario(name) || getQuicScenario(name) || getTcpScenario(name);
   };
   const scenarios = (scenarioNames || []).map(lookup).filter(Boolean);
 

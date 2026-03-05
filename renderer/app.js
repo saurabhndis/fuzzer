@@ -59,6 +59,7 @@
   const tlsTabBtn = document.getElementById('tlsTabBtn');
   const http2TabBtn = document.getElementById('http2TabBtn');
   const quicTabBtn = document.getElementById('quicTabBtn');
+  const tcpTabBtn = document.getElementById('tcpTabBtn');
 
   // State
   let running = false;
@@ -73,7 +74,10 @@
   let allQuicScenarios = {};
   let quicCategories = {};
   let quicDefaultDisabled = new Set();
-  let activeProtocol = 'tls'; // 'tls' | 'h2' | 'quic'
+  let allTcpScenarios = {};
+  let tcpCategories = {};
+  let rawAvailable = false;
+  let activeProtocol = 'tls'; // 'tls' | 'h2' | 'quic' | 'raw-tcp'
   let unsubPacket = null;
   let unsubResult = null;
   let unsubProgress = null;
@@ -286,6 +290,17 @@
     quicTabBtn.classList.add('active');
     tlsTabBtn.classList.remove('active');
     http2TabBtn.classList.remove('active');
+    tcpTabBtn.classList.remove('active');
+    filterScenariosBySide();
+  });
+
+  tcpTabBtn.addEventListener('click', () => {
+    if (activeProtocol === 'raw-tcp') return;
+    activeProtocol = 'raw-tcp';
+    tcpTabBtn.classList.add('active');
+    tlsTabBtn.classList.remove('active');
+    http2TabBtn.classList.remove('active');
+    quicTabBtn.classList.remove('active');
     filterScenariosBySide();
   });
 
