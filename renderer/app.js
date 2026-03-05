@@ -272,6 +272,8 @@
     activeProtocol = 'tls';
     tlsTabBtn.classList.add('active');
     http2TabBtn.classList.remove('active');
+    quicTabBtn.classList.remove('active');
+    tcpTabBtn.classList.remove('active');
     filterScenariosBySide();
   });
 
@@ -281,6 +283,7 @@
     http2TabBtn.classList.add('active');
     tlsTabBtn.classList.remove('active');
     quicTabBtn.classList.remove('active');
+    tcpTabBtn.classList.remove('active');
     filterScenariosBySide();
   });
 
@@ -319,6 +322,9 @@
       quicCategories = data.quicCategories || {};
       allQuicScenarios = data.quicScenarios || {};
       quicDefaultDisabled = new Set(data.quicDefaultDisabled || []);
+      tcpCategories = data.tcpCategories || {};
+      allTcpScenarios = data.tcpScenarios || {};
+      rawAvailable = data.rawAvailable || false;
       renderScenarios();
     } catch (err) {
       console.error('Failed to load scenarios:', err);
@@ -329,6 +335,11 @@
     console.log('Rendering scenarios for protocol:', activeProtocol, 'side:', modeSelect.value);
     scenariosList.innerHTML = '';
     const side = modeSelect.value;
+
+    if (activeProtocol === 'raw-tcp') {
+      renderTcpScenarios(side);
+      return;
+    }
 
     if (activeProtocol === 'quic') {
       renderQuicScenarios(side);
@@ -498,10 +509,37 @@
     }
   }
 
+  function renderTcpScenarios(side) {
+    scenariosList.innerHTML = '';
+
+    if (!rawAvailable) {
+      const warning = document.createElement('div');
+      warning.className = 'tcp-warning';
+      warning.innerHTML = '<strong>Raw sockets not available.</strong> Requires CAP_NET_RAW on Linux.<br>Run: <code>sudo setcap cap_net_raw+ep $(which node)</code>';
+      warning.style.cssText = 'padding: 12px; margin: 8px; background: #3a2a00; border: 1px solid #665500; border-radius: 6px; color: #ffcc00; font-size: 12px;';
+      scenariosList.appendChild(warning);
+    }
+
+    for (const [cat, label] of Object.entries(tcpCategories)) {
+      const items = (allTcpScenarios[cat] || []).filter(s => s.side === side);
+      if (items.length === 0) continue;
+      scenariosList.appendChild(_buildProtocolCategoryGroup('raw-tcp', cat, label, items));
+    }
+  }
+
   // Render all scenarios (both client and server) for distributed mode.
   // Respects activeProtocol — shows TLS or H2 scenarios depending on the active tab.
   function renderAllScenarios() {
     scenariosList.innerHTML = '';
+
+    if (activeProtocol === 'raw-tcp') {
+      for (const [cat, label] of Object.entries(tcpCategories)) {
+        const items = allTcpScenarios[cat] || [];
+        if (items.length === 0) continue;
+        scenariosList.appendChild(_buildProtocolCategoryGroup('raw-tcp', cat, label, items));
+      }
+      return;
+    }
 
     if (activeProtocol === 'quic') {
       for (const [cat, label] of Object.entries(quicCategories)) {
@@ -596,6 +634,7 @@
     let disabled = defaultDisabled;
     if (activeProtocol === 'h2') disabled = h2DefaultDisabled;
     if (activeProtocol === 'quic') disabled = quicDefaultDisabled;
+    if (activeProtocol === 'raw-tcp') disabled = new Set(); // all TCP scenarios are selectable
 
     checkboxes.forEach(cb => {
       if (checked && disabled.has(cb.dataset.category)) return;

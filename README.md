@@ -2,7 +2,7 @@
 
 A multi-protocol fuzzer for testing TLS, HTTP/2, and QUIC implementations. Every byte of every handshake message is constructed manually, giving full control over protocol violations, malformations, and edge cases. No actual encryption is performed.
 
-**340+ fuzzing scenarios** across **38 categories** covering TLS handshake attacks, HTTP/2 frame manipulation, QUIC transport fuzzing, CVE detection, certificate field fuzzing, and more.
+**370+ fuzzing scenarios** across **45 categories** covering TLS handshake attacks, HTTP/2 frame manipulation, QUIC transport fuzzing, raw TCP stack attacks, CVE detection, certificate field fuzzing, and more.
 
 Supports three interfaces: **Electron GUI**, **CLI**, and **distributed mode** with remote agents on separate VMs.
 
@@ -25,9 +25,10 @@ npm install
 | Package | Purpose |
 |---------|---------|
 | `xml2js` | XML parsing for PAN-OS firewall integration (DUT mode) |
+| `raw-socket` | Raw TCP socket access for TCP-level fuzzing (optional, Linux only) |
 | `electron` | GUI application framework (dev dependency) |
 
-No other external dependencies. All protocol handling (TLS, HTTP/2 frames, QUIC packets, X.509 certificates) is implemented in pure JavaScript.
+All protocol handling (TLS, HTTP/2 frames, QUIC packets, X.509 certificates) is implemented in pure JavaScript. The `raw-socket` module is optional — if unavailable, raw TCP scenarios are skipped and all other protocols work normally.
 
 ---
 
@@ -41,7 +42,7 @@ Launch the GUI and enable **Local Target** mode:
 npm start
 ```
 
-1. Select protocol tab (TLS / HTTP/2 / QUIC)
+1. Select protocol tab (TLS / HTTP/2 / QUIC / Raw TCP)
 2. Select mode (Client or Server)
 3. Check **Local Target** in the toolbar
 4. Select scenarios and click **RUN**
@@ -91,6 +92,41 @@ npm start
 32+ scenarios across 12 categories. Custom QUIC packet builder over UDP (`dgram`).
 
 **Features:** Initial/Handshake/0-RTT packet fuzzing, transport parameter manipulation, connection migration, PQC keyshare testing, server-to-client attacks.
+
+### Raw TCP (Categories RA-RG)
+
+32 scenarios across 7 categories. Uses raw sockets to craft TCP packets with full control over flags, sequence numbers, window sizes, and segmentation. **Linux only.**
+
+**Features:** SYN flood, RST injection, sequence/ACK manipulation, window attacks, overlapping/reordered segments, urgent pointer abuse, TCP state machine fuzzing.
+
+**Setup:** Raw TCP requires additional system configuration. Run the included setup script:
+
+```bash
+sudo ./setup-raw-tcp.sh
+```
+
+This script:
+1. Installs the `raw-socket` native module
+2. Grants `CAP_NET_RAW` capability to the Node.js binary
+3. Adds iptables rules to suppress kernel RST interference (the kernel sends RSTs for raw socket connections it doesn't track)
+
+To undo all changes: `sudo ./setup-raw-tcp.sh --teardown`
+
+**Usage:**
+
+```bash
+# All raw TCP scenarios
+node cli.js client <host> <port> --protocol raw-tcp --scenario all
+
+# Specific category
+node cli.js client <host> <port> --protocol raw-tcp --category RA    # SYN attacks
+node cli.js client <host> <port> --protocol raw-tcp --category RG    # State machine fuzzing
+
+# GUI
+npm start   # select "Raw TCP" tab
+```
+
+If raw sockets are not available (non-Linux, missing capability), raw TCP scenarios are gracefully skipped and all other protocols continue to work.
 
 ---
 
@@ -144,6 +180,9 @@ node client.js <vm-b-ip> 443 --category AA --verbose   # HTTP/2 rapid attacks
 
 # QUIC
 node client.js <vm-b-ip> 443 --category QA --verbose   # QUIC handshake fuzzing
+
+# Raw TCP (requires sudo ./setup-raw-tcp.sh first)
+node cli.js client <vm-b-ip> 443 --protocol raw-tcp --category RA   # SYN attacks
 
 # Record traffic for Wireshark analysis
 node client.js <vm-b-ip> 443 --scenario all --pcap capture.pcap
@@ -284,7 +323,8 @@ The controller pushes configuration to both agents, starts them simultaneously, 
 | Option | Description | Default |
 |--------|-------------|---------|
 | `--scenario <name\|all>` | Run a specific scenario or all client scenarios | required |
-| `--category <cat>` | Run all client scenarios in a category (A-Z, AA-AL, QA-QL) | -- |
+| `--category <cat>` | Run all client scenarios in a category (A-Z, AA-AL, QA-QL, RA-RG) | -- |
+| `--protocol <type>` | Protocol: tls, h2, quic, raw-tcp | tls |
 | `--delay <ms>` | Delay between actions | 100 |
 | `--timeout <ms>` | Connection timeout | 5000 |
 | `--verbose` | Show hex dumps of all packets | off |
@@ -299,7 +339,8 @@ The controller pushes configuration to both agents, starts them simultaneously, 
 | Option | Description | Default |
 |--------|-------------|---------|
 | `--scenario <name\|all>` | Run a specific scenario or all server scenarios | required |
-| `--category <cat>` | Run all server scenarios in a category (A-Z, AA-AL, QA-QL) | -- |
+| `--category <cat>` | Run all server scenarios in a category (A-Z, AA-AL, QA-QL, RA-RG) | -- |
+| `--protocol <type>` | Protocol: tls, h2, quic, raw-tcp | tls |
 | `--hostname <name>` | Certificate CN and SAN | localhost |
 | `--delay <ms>` | Delay between actions | 100 |
 | `--timeout <ms>` | Connection timeout | 10000 |
@@ -393,6 +434,20 @@ Categories **AJ**, **AK**, **AL** are server-side — they run on the fuzzer ser
 
 Categories **QG-QK** are auto-generated by wrapping TLS scenarios (A-Y) in QUIC Initial packets with CRYPTO frames. Category **QL** contains purpose-built server-to-client attack scenarios.
 
+### Raw TCP (Categories RA-RG) — 32 scenarios
+
+| Cat | Name | Side | Severity |
+|-----|------|------|----------|
+| RA | TCP SYN Attacks | client | high |
+| RB | TCP RST Injection | mixed | high |
+| RC | TCP Sequence/ACK Manipulation | client | high |
+| RD | TCP Window Attacks | mixed | medium |
+| RE | TCP Segment Reordering & Overlap | client | medium |
+| RF | TCP Urgent Pointer Attacks | client | low |
+| RG | TCP State Machine Fuzzing | client | high |
+
+All raw TCP categories are **opt-in** — they require raw socket setup (`sudo ./setup-raw-tcp.sh`) and are skipped when raw sockets are unavailable. Use `--protocol raw-tcp` with the CLI or select the "Raw TCP" tab in the GUI.
+
 ---
 
 ## Local Target Mode
@@ -481,7 +536,7 @@ Monitor a Palo Alto Networks (PAN-OS) firewall during fuzzing to detect crashes 
 
 ## GUI Features
 
-- **Protocol tabs**: TLS, HTTP/2, QUIC with per-protocol scenario lists
+- **Protocol tabs**: TLS, HTTP/2, QUIC, Raw TCP with per-protocol scenario lists
 - **Mode select**: Client / Server with automatic scenario filtering
 - **Live results table**: Scenario, category, status, health, finding, verdict
 - **Packet log**: Real-time protocol message display with optional hex dumps
@@ -503,6 +558,7 @@ fuzzer/
   cli.js                       Unified CLI
   client.js                    Standalone client CLI
   server.js                    Standalone server CLI
+  setup-raw-tcp.sh             Raw TCP setup script (Linux)
   preload.js                   Electron IPC bridge
   renderer/
     index.html                 GUI layout
@@ -520,6 +576,8 @@ fuzzer/
     http2-fuzzer-server.js      HTTP/2 server engine
     quic-fuzzer-client.js       QUIC client engine
     quic-fuzzer-server.js       QUIC server engine
+    raw-tcp.js                  Raw TCP socket (Linux, CAP_NET_RAW)
+    tcp-scenarios.js            Raw TCP scenarios (32)
     well-behaved-server.js      Compliant server for local mode
     well-behaved-client.js      Compliant client for local mode
     agent.js                    Remote agent HTTP server
@@ -561,6 +619,13 @@ node client.js target.com 443 --category QA --verbose
 
 # QUIC server-to-client attacks (local mode)
 node server.js 4433 --category QL --verbose
+
+# Raw TCP SYN flood resilience test (Linux only, requires setup)
+sudo ./setup-raw-tcp.sh
+node cli.js client target.com 443 --protocol raw-tcp --category RA
+
+# Raw TCP state machine fuzzing
+node cli.js client target.com 443 --protocol raw-tcp --category RG --verbose
 
 # Run a specific scenario
 node client.js target.com 443 --scenario heartbleed-test --verbose
