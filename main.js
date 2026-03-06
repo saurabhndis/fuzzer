@@ -641,17 +641,33 @@ ipcMain.handle('close-firewall', () => {
 function panosRequest(host, params) {
   return new Promise((resolve, reject) => {
     // SSRF Protection: strict hostname/IP validation
-    if (!host || typeof host !== 'string' || !/^[a-zA-Z0-9.\-:]+$/.test(host)) {
+    if (!host || typeof host !== 'string' || !/^[a-zA-Z0-9.\-:\[\]]+$/.test(host)) {
       return reject(new Error('Invalid firewall hostname or IP address'));
+    }
+
+    let hostname = host;
+    let port = 443;
+
+    // Support host:port format
+    if (host.includes(':') && !host.startsWith('[')) {
+      const parts = host.split(':');
+      hostname = parts[0];
+      port = parseInt(parts[1], 10) || 443;
+    } else if (host.startsWith('[') && host.includes(']:')) {
+      // IPv6 with port [::1]:443
+      const parts = host.split(']:');
+      hostname = parts[0].slice(1);
+      port = parseInt(parts[1], 10) || 443;
     }
 
     const postBody = new url.URLSearchParams(params).toString();
     const options = {
-      hostname: host,
-      port: 443,
+      hostname,
+      port,
       path: '/api/',
       method: 'POST',
       timeout: 15000,
+      rejectUnauthorized: false,
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded',
         'Content-Length': Buffer.byteLength(postBody),

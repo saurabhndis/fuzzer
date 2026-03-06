@@ -935,14 +935,11 @@
     try {
       const pingResult = await window.panos.ping({ host });
       if (!pingResult.reachable) {
-        toast(`Host ${host} is not reachable. Check the IP and network connectivity.`, 'error');
-        console.log('Ping output:', pingResult.output);
-        connectBtn.disabled = false;
-        connectBtn.innerHTML = 'Connect &amp; Get API Key';
-        setStatus('', 'Disconnected');
-        return;
+        // Many firewalls block ICMP but have HTTPS open. Warn but continue.
+        toast(`Host ${host} is not pingable (ICMP), but let's try HTTPS...`, 'info');
+        console.log('Ping failed (ICMP):', pingResult.output);
       }
-      toast(`Host ${host} is reachable. Authenticating…`, 'success');
+      
       setStatus('loading', 'Authenticating…');
 
       const { apiKey } = await window.panos.getApiKey({ host, username, password });
