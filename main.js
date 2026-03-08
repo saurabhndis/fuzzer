@@ -69,6 +69,7 @@ ipcMain.handle('list-scenarios', () => {
         category: s.category,
         description: s.description,
         side: s.side,
+        requiresRaw: !!s.requiresRaw,
         expected: s.expected || computed.expected,
         expectedReason: s.expectedReason || computed.reason,
       };
@@ -86,6 +87,7 @@ ipcMain.handle('list-scenarios', () => {
         category: s.category,
         description: s.description,
         side: s.side,
+        requiresRaw: !!s.requiresRaw,
         expected: s.expected || computed.expected,
         expectedReason: s.expectedReason || computed.reason,
       };
@@ -103,6 +105,7 @@ ipcMain.handle('list-scenarios', () => {
         category: s.category,
         description: s.description,
         side: s.side,
+        requiresRaw: !!s.requiresRaw,
         expected: s.expected || computed.expected,
         expectedReason: s.expectedReason || computed.reason,
       };
@@ -113,12 +116,18 @@ ipcMain.handle('list-scenarios', () => {
   const tcpGroups = listTcpScenarios();
   const tcpStripped = {};
   for (const [cat, group] of Object.entries(tcpGroups)) {
-    tcpStripped[cat] = group.scenarios.map(s => ({
-      name: s.name,
-      category: cat,
-      description: s.description,
-      side: s.side,
-    }));
+    tcpStripped[cat] = group.scenarios.map(s => {
+      const computed = computeExpected(s);
+      return {
+        name: s.name,
+        category: cat,
+        description: s.description,
+        side: s.side,
+        requiresRaw: !!s.requiresRaw,
+        expected: s.expected || computed.expected,
+        expectedReason: s.expectedReason || computed.reason,
+      };
+    });
   }
 
   return {
@@ -184,7 +193,8 @@ ipcMain.handle('run-fuzzer', async (event, opts) => {
     if (localMode) {
       localServer = new WellBehavedServer({ port: portNum, hostname: 'localhost', logger });
       try {
-        if (protocol === 'quic') await localServer.startQuic();
+        if (protocol === 'raw-tcp') await localServer.startTCP();
+        else if (protocol === 'quic') await localServer.startQuic();
         else if (protocol === 'h2') await localServer.startH2();
         else await localServer.startTLS();
       } catch (err) {

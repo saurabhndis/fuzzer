@@ -168,6 +168,12 @@ body {
   background: var(--bg-tertiary);
 }
 
+.scenarios-panel > .panel-header {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+}
+
 .panel-header h2 {
   font-size: 12px;
   text-transform: uppercase;
@@ -890,6 +896,7 @@ body {
 .panel-title-row {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 10px;
 }
 
@@ -1009,4 +1016,16 @@ body {
 
 .quic-server-info .h2-server-title {
   color: #c4b5fd;
+}
+
+/* Unavailable Scenarios (Missing Raw Cap) */
+.scenario-item.unavailable {
+  opacity: 0.5;
+  cursor: not-allowed;
+  filter: grayscale(1);
+}
+
+.scenario-item.unavailable .name {
+  color: var(--text-muted);
+  text-decoration: line-through;
 }

@@ -376,14 +376,18 @@
 
       for (const s of items) {
         const item = document.createElement('label');
-        item.className = 'scenario-item';
-        item.title = s.description;
+        const isUnavailable = s.requiresRaw && !rawAvailable;
+        item.className = `scenario-item ${isUnavailable ? 'unavailable' : ''}`;
+        item.title = isUnavailable ? `${s.description} (Requires raw sockets)` : s.description;
 
         const cb = document.createElement('input');
         cb.type = 'checkbox';
         cb.value = s.name;
         cb.dataset.side = s.side;
         cb.dataset.category = cat;
+        if (isUnavailable) {
+          cb.disabled = true;
+        }
 
         const nameSpan = document.createElement('span');
         nameSpan.className = 'name';
@@ -425,8 +429,9 @@
 
     for (const s of items) {
       const item = document.createElement('label');
-      item.className = 'scenario-item';
-      item.title = s.description;
+      const isUnavailable = s.requiresRaw && !rawAvailable;
+      item.className = `scenario-item ${isUnavailable ? 'unavailable' : ''}`;
+      item.title = isUnavailable ? `${s.description} (Requires raw sockets)` : s.description;
 
       const cb = document.createElement('input');
       cb.type = 'checkbox';
@@ -434,6 +439,9 @@
       cb.dataset.side = s.side;
       cb.dataset.category = cat;
       cb.dataset.protocol = protocol;
+      if (isUnavailable) {
+        cb.disabled = true;
+      }
 
       const nameSpan = document.createElement('span');
       nameSpan.className = 'name';
@@ -587,14 +595,18 @@
 
       for (const s of items) {
         const item = document.createElement('label');
-        item.className = 'scenario-item';
-        item.title = s.description;
+        const isUnavailable = s.requiresRaw && !rawAvailable;
+        item.className = `scenario-item ${isUnavailable ? 'unavailable' : ''}`;
+        item.title = isUnavailable ? `${s.description} (Requires raw sockets)` : s.description;
 
         const cb = document.createElement('input');
         cb.type = 'checkbox';
         cb.value = s.name;
         cb.dataset.side = s.side;
         cb.dataset.category = cat;
+        if (isUnavailable) {
+          cb.disabled = true;
+        }
 
         const nameSpan = document.createElement('span');
         nameSpan.className = 'name';
