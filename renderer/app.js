@@ -363,7 +363,15 @@
       const disabledTag = defaultDisabled.has(cat)
         ? ' <span class="opt-in-tag">server-side, opt-in</span>'
         : '';
-      header.innerHTML = `<span class="arrow">&#9660;</span> ${cat}: ${label} <span class="count">${items.length}</span>${disabledTag}`;
+      header.innerHTML = `
+        <span class="arrow">&#9660;</span>
+        <span class="cat-label">${cat}: ${label}</span>
+        <span class="count">${items.length}</span>${disabledTag}
+        <div class="category-controls" onclick="event.stopPropagation()">
+          <button class="btn-tiny select-cat-all" title="Select all in this category">All</button>
+          <button class="btn-tiny select-cat-none" title="Deselect all in this category">None</button>
+        </div>
+      `;
 
       const itemsDiv = document.createElement('div');
       itemsDiv.className = 'category-items';
@@ -373,6 +381,14 @@
         itemsDiv.classList.toggle('collapsed');
         arrow.classList.toggle('collapsed');
       });
+
+      // Category selection logic
+      header.querySelector('.select-cat-all').onclick = () => {
+        itemsDiv.querySelectorAll('input[type="checkbox"]:not(:disabled)').forEach(cb => cb.checked = true);
+      };
+      header.querySelector('.select-cat-none').onclick = () => {
+        itemsDiv.querySelectorAll('input[type="checkbox"]').forEach(cb => cb.checked = false);
+      };
 
       for (const s of items) {
         const item = document.createElement('label');
@@ -416,7 +432,15 @@
 
     const header = document.createElement('div');
     header.className = 'category-header';
-    header.innerHTML = `<span class="arrow">&#9660;</span> ${cat}: ${label} <span class="count">${items.length}</span>`;
+    header.innerHTML = `
+      <span class="arrow">&#9660;</span>
+      <span class="cat-label">${cat}: ${label}</span>
+      <span class="count">${items.length}</span>
+      <div class="category-controls" onclick="event.stopPropagation()">
+        <button class="btn-tiny select-cat-all" title="Select all in this category">All</button>
+        <button class="btn-tiny select-cat-none" title="Deselect all in this category">None</button>
+      </div>
+    `;
 
     const itemsDiv = document.createElement('div');
     itemsDiv.className = 'category-items';
@@ -426,6 +450,14 @@
       itemsDiv.classList.toggle('collapsed');
       arrow.classList.toggle('collapsed');
     });
+
+    // Category selection logic
+    header.querySelector('.select-cat-all').onclick = () => {
+      itemsDiv.querySelectorAll('input[type="checkbox"]:not(:disabled)').forEach(cb => cb.checked = true);
+    };
+    header.querySelector('.select-cat-none').onclick = () => {
+      itemsDiv.querySelectorAll('input[type="checkbox"]').forEach(cb => cb.checked = false);
+    };
 
     for (const s of items) {
       const item = document.createElement('label');
