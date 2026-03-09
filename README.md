@@ -1,8 +1,8 @@
 # Protocol Fuzzer
 
-A multi-protocol fuzzer for testing TLS, HTTP/2, and QUIC implementations. Every byte of every handshake message is constructed manually, giving full control over protocol violations, malformations, and edge cases. No actual encryption is performed.
+A multi-protocol fuzzer for testing TLS, HTTP/2, QUIC, and Raw TCP implementations. Every byte of every handshake message is constructed manually, giving full control over protocol violations, malformations, and edge cases. No actual encryption is performed.
 
-**370+ fuzzing scenarios** across **45 categories** covering TLS handshake attacks, HTTP/2 frame manipulation, QUIC transport fuzzing, raw TCP stack attacks, CVE detection, certificate field fuzzing, and more.
+**1,500+ fuzzing scenarios** across **50+ categories** covering TLS handshake attacks, HTTP/2 frame manipulation, QUIC transport fuzzing, raw TCP stack attacks, CVE detection, certificate field fuzzing, TLS compatibility scanning, and more.
 
 Supports three interfaces: **Electron GUI**, **CLI**, and **distributed mode** with remote agents on separate VMs.
 
@@ -73,31 +73,33 @@ npm start
 
 ## Protocols
 
-### TLS (Categories A-Z)
+### TLS (Categories A-Z, SCAN)
 
-240 scenarios across 26 categories. Manually constructs TLS records over raw TCP.
+439 scenarios across 26 categories, plus 292 TLS compatibility scan scenarios. Manually constructs TLS records over raw TCP.
 
 **Supported versions:** SSL 3.0, TLS 1.0, 1.1, 1.2, 1.3
 
 **Certificate generation:** Auto-generates RSA 2048-bit self-signed X.509 certificates with configurable CN/SAN, SHA256 signatures, and proper v3 extensions.
 
+**TLS Compatibility Scanning (SCAN):** Probes target support for cipher suites, protocol versions, named groups, and legacy/insecure configurations across 292 generated scan scenarios.
+
 ### HTTP/2 (Categories AA-AL)
 
-70 scenarios across 12 categories. Uses Node.js `http2` module with TLS+ALPN negotiation.
+68 scenarios across 12 categories. Uses Node.js `http2` module with TLS+ALPN negotiation.
 
 **Features:** Frame-level fuzzing, HPACK manipulation, flow control attacks, stream abuse, server-to-client attacks.
 
 ### QUIC (Categories QA-QL)
 
-32+ scenarios across 12 categories. Custom QUIC packet builder over UDP (`dgram`).
+719 scenarios across 12 categories. Custom QUIC packet builder over UDP (`dgram`). Categories QG-QK auto-generate scenarios by wrapping TLS attacks in QUIC Initial packets with CRYPTO frames.
 
 **Features:** Initial/Handshake/0-RTT packet fuzzing, transport parameter manipulation, connection migration, PQC keyshare testing, server-to-client attacks.
 
-### Raw TCP (Categories RA-RG)
+### Raw TCP (Categories RA-RH)
 
-32 scenarios across 7 categories. Uses raw sockets to craft TCP packets with full control over flags, sequence numbers, window sizes, and segmentation. **Linux only.**
+53 scenarios across 8 categories. Uses raw sockets to craft TCP packets with full control over flags, sequence numbers, window sizes, and segmentation. **Linux only.**
 
-**Features:** SYN flood, RST injection, sequence/ACK manipulation, window attacks, overlapping/reordered segments, urgent pointer abuse, TCP state machine fuzzing.
+**Features:** SYN flood, RST injection, sequence/ACK manipulation, window attacks, overlapping/reordered segments, urgent pointer abuse, TCP state machine fuzzing, TCP option fuzzing.
 
 **Setup:** Raw TCP requires additional system configuration. Run the included setup script:
 
@@ -363,7 +365,7 @@ node cli.js server <port> --hostname x --scenario all     # Server mode
 
 ## Fuzzing Categories
 
-### TLS (Categories A-Z) — 240 scenarios
+### TLS (Categories A-Z, SCAN) — 439 + 292 scan scenarios
 
 | Cat | Name | Side | Scenarios | Severity |
 |-----|------|------|-----------|----------|
@@ -393,10 +395,11 @@ node cli.js server <port> --hostname x --scenario all     # Server mode
 | X | Client Certificate Abuse | client | 12 | medium |
 | Y | Certificate Chain & Message Structure | server | 8 | medium |
 | Z | TLS Application Layer | client | 1 | low |
+| SCAN | TLS Compatibility Scanning | both | 292 | info |
 
-Categories **W** and **Y** are opt-in (server-side only) — they are skipped by `--scenario all`. Use `--category W` or `--category Y` explicitly.
+Categories **W**, **Y**, and **SCAN** are opt-in — they are skipped by `--scenario all`. Use `--category W`, `--category Y`, or `--category SCAN` explicitly.
 
-### HTTP/2 (Categories AA-AL) — 70 scenarios
+### HTTP/2 (Categories AA-AL) — 68 scenarios
 
 | Cat | Name | Side | Severity |
 |-----|------|------|----------|
@@ -415,7 +418,7 @@ Categories **W** and **Y** are opt-in (server-side only) — they are skipped by
 
 Categories **AJ**, **AK**, **AL** are server-side — they run on the fuzzer server and attack connecting clients.
 
-### QUIC (Categories QA-QL) — 32+ scenarios
+### QUIC (Categories QA-QL) — 719 scenarios
 
 | Cat | Name | Side | Severity |
 |-----|------|------|----------|
@@ -434,17 +437,18 @@ Categories **AJ**, **AK**, **AL** are server-side — they run on the fuzzer ser
 
 Categories **QG-QK** are auto-generated by wrapping TLS scenarios (A-Y) in QUIC Initial packets with CRYPTO frames. Category **QL** contains purpose-built server-to-client attack scenarios.
 
-### Raw TCP (Categories RA-RG) — 32 scenarios
+### Raw TCP (Categories RA-RH) — 53 scenarios
 
-| Cat | Name | Side | Severity |
-|-----|------|------|----------|
-| RA | TCP SYN Attacks | client | high |
-| RB | TCP RST Injection | mixed | high |
-| RC | TCP Sequence/ACK Manipulation | client | high |
-| RD | TCP Window Attacks | mixed | medium |
-| RE | TCP Segment Reordering & Overlap | client | medium |
-| RF | TCP Urgent Pointer Attacks | client | low |
-| RG | TCP State Machine Fuzzing | client | high |
+| Cat | Name | Side | Scenarios | Severity |
+|-----|------|------|-----------|----------|
+| RA | TCP SYN Attacks | client | 8 | high |
+| RB | TCP RST Injection | mixed | 7 | high |
+| RC | TCP Sequence/ACK Manipulation | client | 8 | high |
+| RD | TCP Window Attacks | mixed | 5 | medium |
+| RE | TCP Segment Reordering & Overlap | client | 6 | medium |
+| RF | TCP Urgent Pointer Attacks | client | 3 | low |
+| RG | TCP State Machine Fuzzing | client | 10 | high |
+| RH | TCP Option Fuzzing (TLS) | client | 6 | medium |
 
 All raw TCP categories are **opt-in** — they require raw socket setup (`sudo ./setup-raw-tcp.sh`) and are skipped when raw sockets are unavailable. Use `--protocol raw-tcp` with the CLI or select the "Raw TCP" tab in the GUI.
 
@@ -564,10 +568,13 @@ fuzzer/
     index.html                 GUI layout
     app.js                     GUI logic
     styles.css                 Styling
+    firewall.html              PAN-OS firewall monitor window
   lib/
-    scenarios.js               TLS scenarios (240)
-    http2-scenarios.js          HTTP/2 scenarios (70)
-    quic-scenarios.js           QUIC scenarios (32+)
+    scenarios.js               TLS scenarios (439)
+    http2-scenarios.js          HTTP/2 scenarios (68)
+    quic-scenarios.js           QUIC scenarios (719)
+    tcp-scenarios.js            Raw TCP scenarios (53)
+    scan-scenarios.js           TLS compatibility scan scenarios (292)
     unified-client.js           Multi-protocol client dispatcher
     unified-server.js           Multi-protocol server dispatcher
     fuzzer-client.js            TLS client engine
@@ -577,7 +584,6 @@ fuzzer/
     quic-fuzzer-client.js       QUIC client engine
     quic-fuzzer-server.js       QUIC server engine
     raw-tcp.js                  Raw TCP socket (Linux, CAP_NET_RAW)
-    tcp-scenarios.js            Raw TCP scenarios (32)
     well-behaved-server.js      Compliant server for local mode
     well-behaved-client.js      Compliant client for local mode
     agent.js                    Remote agent HTTP server
@@ -596,6 +602,37 @@ fuzzer/
     logger.js                   Event and hex dump logging
     tcp-tricks.js               TCP manipulation (FIN, RST)
 ```
+
+---
+
+## Security Considerations
+
+This tool is designed for authorized security testing. Be aware of the following when deploying it:
+
+### Agent API
+
+The distributed agent (`--agent` mode) runs an HTTP control server. By default it binds to all interfaces (`0.0.0.0`).
+
+- **Always use `--token`** when running agents on a network. Without a token, anyone on the network can configure and trigger fuzzing against arbitrary targets.
+- The agent control channel uses plain HTTP (not HTTPS). Use a VPN or SSH tunnel for cross-network deployments.
+- There is no request body size limit on agent endpoints. Restrict network access to trusted controllers.
+
+### Electron GUI
+
+- `nodeIntegration` is disabled and `contextIsolation` is enabled on all windows.
+- The main window CSP restricts scripts to `'self'`. The firewall monitor window allows `'unsafe-inline'` for scripts.
+- The Electron sandbox is disabled (`sandbox: false`). Consider enabling it if running on untrusted networks.
+
+### TLS Validation
+
+- `NODE_TLS_REJECT_UNAUTHORIZED=0` is set process-wide in the Electron main process to support PAN-OS firewall monitoring over self-signed certs. This disables certificate validation for all HTTPS connections from the main process.
+- Individual fuzzer client/server connections disable TLS validation per-connection as needed (by design, since the tool tests malformed TLS).
+
+### Network Safety
+
+- This tool sends intentionally malformed protocol messages. Only use it against systems you own or have explicit authorization to test.
+- Raw TCP scenarios (`RA-RH`) craft packets at the IP layer and can trigger IDS/IPS alerts.
+- The SCAN category probes for supported cipher suites and protocol versions, which may be logged as reconnaissance.
 
 ---
 
@@ -626,6 +663,9 @@ node cli.js client target.com 443 --protocol raw-tcp --category RA
 
 # Raw TCP state machine fuzzing
 node cli.js client target.com 443 --protocol raw-tcp --category RG --verbose
+
+# TLS compatibility scan (cipher suites, versions, curves)
+node client.js target.com 443 --category SCAN --verbose
 
 # Run a specific scenario
 node client.js target.com 443 --scenario heartbleed-test --verbose
