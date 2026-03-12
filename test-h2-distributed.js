@@ -74,22 +74,29 @@ async function runServerPhase(label, scenarios, protocol, connectFn, config, tim
   const wbClient = new WellBehavedClient({ host: 'localhost', port: FUZZ_PORT });
   let done = false;
 
-  // Drive well-behaved client connections in parallel
-  const clientTask = (async () => {
-    for (let i = 0; i < scenarios.length; i++) {
-      if (done) break;
-      await sleep(1500);
-      if (done) break;
-      try { await connectFn(wbClient); } catch (_) {}
-      await sleep(500);
+  // Drive well-behaved client connections triggered by progress events.
+  // When the server agent starts a new scenario it emits a 'progress' event;
+  // we wait a short delay for the server to register its stream listener,
+  // then connect. This avoids timing-based races where the client connects
+  // before the scenario is ready or after it has timed out.
+  let pendingConnect = null;
+  const unsubProgress = controller.onEvent((role, event) => {
+    if (done) return;
+    if (event.type === 'progress') {
+      // Small delay to let the server scenario register its stream listener
+      pendingConnect = sleep(500).then(() => {
+        if (done) return;
+        return connectFn(wbClient).catch(() => {});
+      });
     }
-  })();
+  });
 
   const { results, errors } = await collectResults(controller, scenarios.length, timeoutMs, () => { done = true; });
 
   done = true;
+  unsubProgress();
+  if (pendingConnect) await pendingConnect.catch(() => {});
   wbClient.stop();
-  await clientTask.catch(() => {});
   controller.disconnect();
   serverAgent.close();
   await sleep(500);
