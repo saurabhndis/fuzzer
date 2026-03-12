@@ -6,6 +6,8 @@ const { FuzzerServer } = require('./lib/fuzzer-server');
 const { UnifiedServer } = require('./lib/unified-server');
 const { Logger } = require('./lib/logger');
 const { getScenario, getScenariosByCategory, getServerScenarios, CATEGORY_DEFAULT_DISABLED } = require('./lib/scenarios');
+const { getHttp2Scenario, getHttp2ScenariosByCategory, listHttp2ServerScenarios } = require('./lib/http2-scenarios');
+const { getQuicScenario, getQuicScenariosByCategory, listQuicServerScenarios } = require('./lib/quic-scenarios');
 const { getTcpScenario, getTcpScenariosByCategory, getTcpServerScenarios } = require('./lib/tcp-scenarios');
 const { isRawAvailable } = require('./lib/raw-tcp');
 const { generateServerCert } = require('./lib/cert-gen');
@@ -113,10 +115,11 @@ async function main() {
   let scenarios;
   if (args.category) {
     const cat = args.category.toUpperCase();
-    const isTcpCat = cat.startsWith('R') && cat.length === 2;
-    scenarios = isTcpCat
-      ? getTcpScenariosByCategory(cat)
-      : getScenariosByCategory(cat);
+    if (useRawTcp) scenarios = getTcpScenariosByCategory(cat);
+    else if (protocol === 'h2') scenarios = getHttp2ScenariosByCategory(cat);
+    else if (protocol === 'quic') scenarios = getQuicScenariosByCategory(cat);
+    else scenarios = getScenariosByCategory(cat);
+
     scenarios = scenarios.filter(s => s.side === 'server');
     if (scenarios.length === 0) {
       console.error(`No server scenarios in category ${args.category}`);
@@ -125,6 +128,10 @@ async function main() {
   } else if (args.scenario === 'all') {
     if (useRawTcp) {
       scenarios = getTcpServerScenarios();
+    } else if (protocol === 'h2') {
+      scenarios = listHttp2ServerScenarios();
+    } else if (protocol === 'quic') {
+      scenarios = listQuicServerScenarios();
     } else {
       scenarios = getServerScenarios().filter(s => !CATEGORY_DEFAULT_DISABLED.has(s.category));
     }
@@ -134,7 +141,13 @@ async function main() {
     }
     console.log(`  Running ${scenarios.length} server scenarios (opt-in categories excluded, use --category to include)`);
   } else if (args.scenario) {
-    const s = useRawTcp ? getTcpScenario(args.scenario) : getScenario(args.scenario);
+    let s;
+    if (useRawTcp) s = getTcpScenario(args.scenario);
+    else if (protocol === 'h2') s = getHttp2Scenario(args.scenario);
+    else if (protocol === 'quic') s = getQuicScenario(args.scenario);
+
+    if (!s) s = getScenario(args.scenario);
+
     if (!s) {
       console.error(`Unknown scenario: ${args.scenario}`);
       process.exit(1);

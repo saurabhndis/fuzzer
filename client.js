@@ -5,6 +5,8 @@
 const { UnifiedClient } = require('./lib/unified-client');
 const { Logger } = require('./lib/logger');
 const { getScenario, getScenariosByCategory, getClientScenarios, CATEGORY_DEFAULT_DISABLED } = require('./lib/scenarios');
+const { getHttp2Scenario, getHttp2ScenariosByCategory, listHttp2ClientScenarios } = require('./lib/http2-scenarios');
+const { getQuicScenario, getQuicScenariosByCategory, listQuicClientScenarios } = require('./lib/quic-scenarios');
 const { getTcpScenario, getTcpScenariosByCategory, getTcpClientScenarios } = require('./lib/tcp-scenarios');
 const { isRawAvailable } = require('./lib/raw-tcp');
 
@@ -98,10 +100,11 @@ async function main() {
   let scenarios;
   if (args.category) {
     const cat = args.category.toUpperCase();
-    const isTcpCat = cat.startsWith('R');
-    scenarios = isTcpCat 
-      ? getTcpScenariosByCategory(cat) 
-      : getScenariosByCategory(cat);
+    if (useRawTcp) scenarios = getTcpScenariosByCategory(cat);
+    else if (protocol === 'h2') scenarios = getHttp2ScenariosByCategory(cat);
+    else if (protocol === 'quic') scenarios = getQuicScenariosByCategory(cat);
+    else scenarios = getScenariosByCategory(cat);
+
     scenarios = scenarios.filter(s => s.side === 'client');
     
     if (scenarios.length === 0) {
@@ -111,6 +114,10 @@ async function main() {
   } else if (args.scenario === 'all') {
     if (useRawTcp) {
       scenarios = getTcpClientScenarios();
+    } else if (protocol === 'h2') {
+      scenarios = listHttp2ClientScenarios();
+    } else if (protocol === 'quic') {
+      scenarios = listQuicClientScenarios();
     } else {
       scenarios = getClientScenarios().filter(s => !CATEGORY_DEFAULT_DISABLED.has(s.category));
     }
@@ -119,7 +126,13 @@ async function main() {
       process.exit(1);
     }
   } else if (args.scenario) {
-    const s = useRawTcp ? getTcpScenario(args.scenario) : getScenario(args.scenario);
+    let s;
+    if (useRawTcp) s = getTcpScenario(args.scenario);
+    else if (protocol === 'h2') s = getHttp2Scenario(args.scenario);
+    else if (protocol === 'quic') s = getQuicScenario(args.scenario);
+
+    if (!s) s = getScenario(args.scenario);
+
     if (!s) {
       console.error(`Unknown scenario: ${args.scenario}`);
       process.exit(1);

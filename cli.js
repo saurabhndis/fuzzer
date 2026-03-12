@@ -7,6 +7,8 @@ const { UnifiedClient } = require('./lib/unified-client');
 const { UnifiedServer } = require('./lib/unified-server');
 const { Logger } = require('./lib/logger');
 const { listScenarios, getScenario, getScenariosByCategory, getClientScenarios, getServerScenarios, CATEGORY_DEFAULT_DISABLED } = require('./lib/scenarios');
+const { listHttp2Scenarios, getHttp2Scenario, getHttp2ScenariosByCategory, listHttp2ClientScenarios, listHttp2ServerScenarios } = require('./lib/http2-scenarios');
+const { listQuicScenarios, getQuicScenario, getQuicScenariosByCategory, listQuicClientScenarios, listQuicServerScenarios } = require('./lib/quic-scenarios');
 const { getTcpScenario, getTcpScenariosByCategory, getTcpClientScenarios, getTcpServerScenarios, listTcpScenarios, TCP_CATEGORIES } = require('./lib/tcp-scenarios');
 const { isRawAvailable } = require('./lib/raw-tcp');
 const { generateServerCert } = require('./lib/cert-gen');
@@ -78,6 +80,30 @@ async function main() {
       console.log('');
     }
 
+    // HTTP/2 scenarios
+    const h2Groups = listHttp2Scenarios();
+    console.log('  \x1b[1m\x1b[33mHTTP/2 Scenarios\x1b[0m\n');
+    for (const [cat, items] of Object.entries(h2Groups.scenarios)) {
+      console.log(`  \x1b[1m\x1b[35m${cat}: ${h2Groups.categories[cat]}\x1b[0m (${items.length} scenarios)`);
+      for (const s of items) {
+        const side = s.side === 'client' ? '\x1b[36mclient\x1b[0m' : '\x1b[33mserver\x1b[0m';
+        console.log(`    ${s.name.padEnd(40)} [${side}] \x1b[90m${s.description}\x1b[0m`);
+      }
+      console.log('');
+    }
+
+    // QUIC scenarios
+    const quicGroups = listQuicScenarios();
+    console.log('  \x1b[1m\x1b[33mQUIC Scenarios\x1b[0m\n');
+    for (const [cat, items] of Object.entries(quicGroups.scenarios)) {
+      console.log(`  \x1b[1m\x1b[35m${cat}: ${quicGroups.categories[cat]}\x1b[0m (${items.length} scenarios)`);
+      for (const s of items) {
+        const side = s.side === 'client' ? '\x1b[36mclient\x1b[0m' : '\x1b[33mserver\x1b[0m';
+        console.log(`    ${s.name.padEnd(40)} [${side}] \x1b[90m${s.description}\x1b[0m`);
+      }
+      console.log('');
+    }
+
     // TCP scenarios
     const tcpGroups = listTcpScenarios();
     const rawStatus = isRawAvailable() ? '\x1b[32m[available]\x1b[0m' : '\x1b[31m[unavailable — needs CAP_NET_RAW]\x1b[0m';
@@ -119,10 +145,12 @@ async function main() {
     // Determine which scenarios to run
     let scenarios;
     if (args.category) {
-      const catScenarios = useRawTcp
-        ? getTcpScenariosByCategory(args.category)
-        : getScenariosByCategory(args.category);
-      scenarios = catScenarios.filter(s => s.side === 'client');
+      if (useRawTcp) scenarios = getTcpScenariosByCategory(args.category);
+      else if (protocol === 'h2') scenarios = getHttp2ScenariosByCategory(args.category);
+      else if (protocol === 'quic') scenarios = getQuicScenariosByCategory(args.category);
+      else scenarios = getScenariosByCategory(args.category);
+
+      scenarios = scenarios.filter(s => s.side === 'client');
       if (scenarios.length === 0) {
         console.error(`No client scenarios in category ${args.category}`);
         process.exit(1);
@@ -130,6 +158,10 @@ async function main() {
     } else if (args.scenario === 'all') {
       if (useRawTcp) {
         scenarios = getTcpClientScenarios();
+      } else if (protocol === 'h2') {
+        scenarios = listHttp2ClientScenarios();
+      } else if (protocol === 'quic') {
+        scenarios = listQuicClientScenarios();
       } else {
         scenarios = getClientScenarios().filter(s => !CATEGORY_DEFAULT_DISABLED.has(s.category));
       }
@@ -138,7 +170,13 @@ async function main() {
         process.exit(1);
       }
     } else if (args.scenario) {
-      const s = useRawTcp ? getTcpScenario(args.scenario) : getScenario(args.scenario);
+      let s;
+      if (useRawTcp) s = getTcpScenario(args.scenario);
+      else if (protocol === 'h2') s = getHttp2Scenario(args.scenario);
+      else if (protocol === 'quic') s = getQuicScenario(args.scenario);
+      
+      if (!s) s = getScenario(args.scenario);
+
       if (!s) {
         console.error(`Unknown scenario: ${args.scenario}`);
         process.exit(1);
@@ -153,6 +191,7 @@ async function main() {
       console.log(USAGE);
       process.exit(1);
     }
+
 
     // Use UnifiedClient for raw-tcp (or h2/quic), FuzzerClient for plain TLS
     const client = (useRawTcp || protocol === 'h2' || protocol === 'quic')
@@ -189,15 +228,22 @@ async function main() {
 
     const useRawTcp = protocol === 'raw-tcp';
 
+    // Determine which scenarios to run
     let scenarios;
     if (args.category) {
-      const catScenarios = useRawTcp
-        ? getTcpScenariosByCategory(args.category)
-        : getScenariosByCategory(args.category);
-      scenarios = catScenarios.filter(s => s.side === 'server');
+      if (useRawTcp) scenarios = getTcpScenariosByCategory(args.category);
+      else if (protocol === 'h2') scenarios = getHttp2ScenariosByCategory(args.category);
+      else if (protocol === 'quic') scenarios = getQuicScenariosByCategory(args.category);
+      else scenarios = getScenariosByCategory(args.category);
+
+      scenarios = scenarios.filter(s => s.side === 'server');
     } else if (args.scenario === 'all') {
       if (useRawTcp) {
         scenarios = getTcpServerScenarios();
+      } else if (protocol === 'h2') {
+        scenarios = listHttp2ServerScenarios();
+      } else if (protocol === 'quic') {
+        scenarios = listQuicServerScenarios();
       } else {
         scenarios = getServerScenarios().filter(s => !CATEGORY_DEFAULT_DISABLED.has(s.category));
       }
@@ -206,7 +252,13 @@ async function main() {
         process.exit(1);
       }
     } else if (args.scenario) {
-      const s = useRawTcp ? getTcpScenario(args.scenario) : getScenario(args.scenario);
+      let s;
+      if (useRawTcp) s = getTcpScenario(args.scenario);
+      else if (protocol === 'h2') s = getHttp2Scenario(args.scenario);
+      else if (protocol === 'quic') s = getQuicScenario(args.scenario);
+      
+      if (!s) s = getScenario(args.scenario);
+
       if (!s) {
         console.error(`Unknown scenario: ${args.scenario}`);
         process.exit(1);

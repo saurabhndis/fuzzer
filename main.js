@@ -169,10 +169,15 @@ ipcMain.handle('run-fuzzer', async (event, opts) => {
 
   // Resolve scenario objects from names (try TLS lookup, then HTTP/2, then QUIC)
   const lookup = (name) => {
-    if (protocol === 'raw-tcp') return getTcpScenario(name);
-    if (protocol === 'quic') return getQuicScenario(name);
-    if (protocol === 'h2') return getHttp2Scenario(name);
-    return getScenario(name) || getHttp2Scenario(name) || getQuicScenario(name) || getTcpScenario(name);
+    let s;
+    if (protocol === 'raw-tcp') s = getTcpScenario(name);
+    else if (protocol === 'quic') s = getQuicScenario(name);
+    else if (protocol === 'h2') s = getHttp2Scenario(name);
+
+    if (!s) {
+      s = getScenario(name) || getHttp2Scenario(name) || getQuicScenario(name) || getTcpScenario(name);
+    }
+    return s;
   };
   const scenarios = (scenarioNames || []).map(lookup).filter(Boolean);
 

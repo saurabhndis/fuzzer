@@ -85,6 +85,64 @@
   let lastReport = null;
   let localMode = false;
   let distributedMode = false;
+
+  // ── Scenario hover tooltip ──────────────────────────────────────────
+  const scenarioTooltip = document.createElement('div');
+  scenarioTooltip.className = 'scenario-tooltip';
+  document.body.appendChild(scenarioTooltip);
+  let _ttHideTimer = null;
+
+  function _escHtml(s) {
+    return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+
+  function _attachScenarioTooltip(item, s) {
+    // Remove native title to avoid double tooltip
+    item.removeAttribute('title');
+
+    item.addEventListener('mouseenter', (e) => {
+      clearTimeout(_ttHideTimer);
+      const expectedVal = s.expected || 'N/A';
+      const reason = s.expectedReason || '';
+      let html = `<div class="tt-name">${_escHtml(s.name)}</div>`;
+      html += `<div class="tt-desc">${_escHtml(s.description)}</div>`;
+      html += `<div class="tt-divider"></div>`;
+      html += `<div class="tt-section"><span class="tt-label">Side:</span><span class="tt-value">${_escHtml(s.side)}</span></div>`;
+      html += `<div class="tt-section"><span class="tt-label">Category:</span><span class="tt-value">${_escHtml(s.category)}</span></div>`;
+      html += `<div class="tt-section"><span class="tt-label">Expected:</span><span class="tt-value pass">${_escHtml(expectedVal)}</span></div>`;
+      if (reason) {
+        html += `<div class="tt-section"><span class="tt-label">Pass if:</span><span class="tt-value">${_escHtml(reason)}</span></div>`;
+      }
+      if (s.requiresRaw) {
+        html += `<div class="tt-section"><span class="tt-label">Note:</span><span class="tt-value fail">Requires raw sockets</span></div>`;
+      }
+      scenarioTooltip.innerHTML = html;
+      scenarioTooltip.classList.add('visible');
+      _positionTooltip(e);
+    });
+
+    item.addEventListener('mousemove', _positionTooltip);
+
+    item.addEventListener('mouseleave', () => {
+      _ttHideTimer = setTimeout(() => {
+        scenarioTooltip.classList.remove('visible');
+      }, 80);
+    });
+  }
+
+  function _positionTooltip(e) {
+    const tt = scenarioTooltip;
+    const margin = 12;
+    let x = e.clientX + margin;
+    let y = e.clientY + margin;
+    // Measure after making visible
+    const w = tt.offsetWidth || 300;
+    const h = tt.offsetHeight || 120;
+    if (x + w > window.innerWidth - 8) x = e.clientX - w - margin;
+    if (y + h > window.innerHeight - 8) y = e.clientY - h - margin;
+    tt.style.left = x + 'px';
+    tt.style.top = y + 'px';
+  }
   let agentsConnected = false;
   let connectedAgents = { client: false, server: false };
   let unsubAgentDone = null;
@@ -394,7 +452,7 @@
         const item = document.createElement('label');
         const isUnavailable = s.requiresRaw && !rawAvailable;
         item.className = `scenario-item ${isUnavailable ? 'unavailable' : ''}`;
-        item.title = isUnavailable ? `${s.description} (Requires raw sockets)` : s.description;
+        _attachScenarioTooltip(item, s);
 
         const cb = document.createElement('input');
         cb.type = 'checkbox';
@@ -463,7 +521,7 @@
       const item = document.createElement('label');
       const isUnavailable = s.requiresRaw && !rawAvailable;
       item.className = `scenario-item ${isUnavailable ? 'unavailable' : ''}`;
-      item.title = isUnavailable ? `${s.description} (Requires raw sockets)` : s.description;
+      _attachScenarioTooltip(item, s);
 
       const cb = document.createElement('input');
       cb.type = 'checkbox';
@@ -629,7 +687,7 @@
         const item = document.createElement('label');
         const isUnavailable = s.requiresRaw && !rawAvailable;
         item.className = `scenario-item ${isUnavailable ? 'unavailable' : ''}`;
-        item.title = isUnavailable ? `${s.description} (Requires raw sockets)` : s.description;
+        _attachScenarioTooltip(item, s);
 
         const cb = document.createElement('input');
         cb.type = 'checkbox';
@@ -859,29 +917,39 @@
     const clientScenariosFinal = [];
     const serverScenariosFinal = [];
 
+    let wbServer = 'well-behaved-server';
+    let wbClient = 'well-behaved-client';
+    if (activeProtocol === 'h2') {
+      wbServer = 'well-behaved-h2-server';
+      wbClient = 'well-behaved-h2-client';
+    } else if (activeProtocol === 'quic') {
+      wbServer = 'well-behaved-quic-server';
+      wbClient = 'well-behaved-quic-client';
+    }
+
     if (clientScenarios.length > 0 && serverScenarios.length === 0) {
       // Phase: Client Fuzzing only
       clientScenariosFinal.push(...clientScenarios);
       for (let i = 0; i < clientScenarios.length; i++) {
-        serverScenariosFinal.push('well-behaved-server');
+        serverScenariosFinal.push(wbServer);
       }
     } else if (serverScenarios.length > 0 && clientScenarios.length === 0) {
       // Phase: Server Fuzzing only
       serverScenariosFinal.push(...serverScenarios);
       for (let i = 0; i < serverScenarios.length; i++) {
-        clientScenariosFinal.push('well-behaved-client');
+        clientScenariosFinal.push(wbClient);
       }
     } else if (clientScenarios.length > 0 && serverScenarios.length > 0) {
       // Combined Phase: Client Fuzzing followed by Server Fuzzing
       // 1. Client Fuzzing Batch
       clientScenariosFinal.push(...clientScenarios);
       for (let i = 0; i < clientScenarios.length; i++) {
-        serverScenariosFinal.push('well-behaved-server');
+        serverScenariosFinal.push(wbServer);
       }
       // 2. Server Fuzzing Batch
       serverScenariosFinal.push(...serverScenarios);
       for (let i = 0; i < serverScenarios.length; i++) {
-        clientScenariosFinal.push('well-behaved-client');
+        clientScenariosFinal.push(wbClient);
       }
     }
 

@@ -1054,3 +1054,61 @@ body {
   color: var(--text-muted);
   text-decoration: line-through;
 }
+
+/* ── Scenario hover tooltip ─────────────────────────────────────────── */
+.scenario-tooltip {
+  position: fixed;
+  z-index: 9999;
+  pointer-events: none;
+  background: var(--bg-secondary, #1c2128);
+  border: 1px solid var(--border, #444c56);
+  border-radius: 6px;
+  padding: 10px 14px;
+  max-width: 380px;
+  min-width: 240px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-primary, #adbac7);
+  box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+  opacity: 0;
+  transition: opacity 0.12s ease;
+  display: none;
+}
+.scenario-tooltip.visible {
+  display: block;
+  opacity: 1;
+}
+.scenario-tooltip .tt-name {
+  font-weight: 600;
+  color: var(--accent, #539bf5);
+  margin-bottom: 4px;
+  font-size: 12px;
+}
+.scenario-tooltip .tt-desc {
+  color: var(--text-primary, #adbac7);
+  margin-bottom: 8px;
+}
+.scenario-tooltip .tt-section {
+  display: flex;
+  gap: 6px;
+  margin-top: 4px;
+}
+.scenario-tooltip .tt-label {
+  color: var(--text-muted, #768390);
+  font-size: 11px;
+  flex-shrink: 0;
+  min-width: 70px;
+}
+.scenario-tooltip .tt-value {
+  font-size: 11px;
+}
+.scenario-tooltip .tt-value.pass {
+  color: var(--green, #57ab5a);
+}
+.scenario-tooltip .tt-value.fail {
+  color: var(--red, #e5534b);
+}
+.scenario-tooltip .tt-divider {
+  border-top: 1px solid var(--border, #444c56);
+  margin: 6px 0;
+}
