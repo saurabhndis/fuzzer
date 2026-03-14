@@ -340,10 +340,12 @@ async function main() {
     // Handle ctrl+c
     process.on('SIGINT', () => {
       server.abort();
+      server.close();
       process.exit(0);
     });
 
     const { results, report } = await server.runScenarios(scenarios);
+    server.close();
 
     if (pcapFile) {
       logger.info(`PCAP saved to: ${pcapFile}`);

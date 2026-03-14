@@ -385,6 +385,12 @@ body {
   border-color: var(--orange);
 }
 
+.btn-small.active {
+  background: var(--orange-dim);
+  color: #fff;
+  border-color: var(--orange);
+}
+
 .btn-small {
   padding: 3px 8px;
   border: 1px solid var(--border);

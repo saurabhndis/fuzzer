@@ -248,26 +248,28 @@ ipcMain.handle('run-fuzzer', async (event, opts) => {
       return result;
     };
 
-    for (let loop = 0; loop < loopCount; loop++) {
-      if (activeClient.aborted) break;
-      if (loopCount > 1) {
-        send('fuzzer-packet', { type: 'info', message: `── Loop ${loop + 1} / ${loopCount} ──` });
-      }
-      for (const scenario of scenarios) {
+    try {
+      for (let loop = 0; loop < loopCount; loop++) {
         if (activeClient.aborted) break;
-        send('fuzzer-progress', { scenario: scenario.name, total: totalWithLoops, current: results.length + 1 });
+        if (loopCount > 1) {
+          send('fuzzer-packet', { type: 'info', message: `── Loop ${loop + 1} / ${loopCount} ──` });
+        }
+        for (const scenario of scenarios) {
+          if (activeClient.aborted) break;
+          send('fuzzer-progress', { scenario: scenario.name, total: totalWithLoops, current: results.length + 1 });
 
-        const result = await activeClient.runScenario(scenario);
+          const result = await activeClient.runScenario(scenario);
 
-        results.push(result);
-        send('fuzzer-result', result);
-        await new Promise(r => setTimeout(r, 300));
+          results.push(result);
+          send('fuzzer-result', result);
+          await new Promise(r => setTimeout(r, 300));
+        }
       }
+    } finally {
+      activeClient.close();
+      activeClient = null;
+      if (localServer) localServer.stop();
     }
-
-    activeClient.close();
-    activeClient = null;
-    if (localServer) localServer.stop();
 
     const report = computeOverallGrade(results);
     send('fuzzer-report', report);
@@ -348,25 +350,27 @@ ipcMain.handle('run-fuzzer', async (event, opts) => {
             : `HTTP/2 server running server-side scenarios — connect an HTTP/2 client to port ${portNum}`,
         });
 
-        for (let loop = 0; loop < loopCount; loop++) {
-          if (activeServer.aborted) break;
-          if (loopCount > 1) {
-            send('fuzzer-packet', { type: 'info', message: `── Loop ${loop + 1} / ${loopCount} ──` });
-          }
-          for (const scenario of scenarios) {
+        try {
+          for (let loop = 0; loop < loopCount; loop++) {
             if (activeServer.aborted) break;
-            send('fuzzer-progress', { scenario: scenario.name, total: totalH2WithLoops, current: results.length + 1 });
-            const clientPromise = spawnLocalClient('h2', 300);
-            const result = await activeServer.runScenario(scenario);
-            if (clientPromise) { const c = await clientPromise; c.stop(); }
-            results.push(result);
-            send('fuzzer-result', result);
-            await new Promise(r => setTimeout(r, 500));
+            if (loopCount > 1) {
+              send('fuzzer-packet', { type: 'info', message: `── Loop ${loop + 1} / ${loopCount} ──` });
+            }
+            for (const scenario of scenarios) {
+              if (activeServer.aborted) break;
+              send('fuzzer-progress', { scenario: scenario.name, total: totalH2WithLoops, current: results.length + 1 });
+              const clientPromise = spawnLocalClient('h2', 300);
+              const result = await activeServer.runScenario(scenario);
+              if (clientPromise) { const c = await clientPromise; c.stop(); }
+              results.push(result);
+              send('fuzzer-result', result);
+              await new Promise(r => setTimeout(r, 500));
+            }
           }
+        } finally {
+          if (activeServer) activeServer.close();
+          activeServer = null;
         }
-
-        if (activeServer) activeServer.close();
-        activeServer = null;
         const report = computeOverallGrade(results);
         send('fuzzer-report', report);
         return { results };
@@ -411,25 +415,27 @@ ipcMain.handle('run-fuzzer', async (event, opts) => {
             : `QUIC server running server-side scenarios — connect a QUIC client to UDP port ${portNum}`,
         });
 
-        for (let loop = 0; loop < loopCount; loop++) {
-          if (activeServer.aborted) break;
-          if (loopCount > 1) {
-            send('fuzzer-packet', { type: 'info', message: `── Loop ${loop + 1} / ${loopCount} ──` });
-          }
-          for (const scenario of scenarios) {
+        try {
+          for (let loop = 0; loop < loopCount; loop++) {
             if (activeServer.aborted) break;
-            send('fuzzer-progress', { scenario: scenario.name, total: totalQuicWithLoops, current: results.length + 1 });
-            const clientPromise = spawnLocalClient('quic', 300);
-            const result = await activeServer.runScenario(scenario);
-            if (clientPromise) { const c = await clientPromise; c.stop(); }
-            results.push(result);
-            send('fuzzer-result', result);
-            await new Promise(r => setTimeout(r, 500));
+            if (loopCount > 1) {
+              send('fuzzer-packet', { type: 'info', message: `── Loop ${loop + 1} / ${loopCount} ──` });
+            }
+            for (const scenario of scenarios) {
+              if (activeServer.aborted) break;
+              send('fuzzer-progress', { scenario: scenario.name, total: totalQuicWithLoops, current: results.length + 1 });
+              const clientPromise = spawnLocalClient('quic', 300);
+              const result = await activeServer.runScenario(scenario);
+              if (clientPromise) { const c = await clientPromise; c.stop(); }
+              results.push(result);
+              send('fuzzer-result', result);
+              await new Promise(r => setTimeout(r, 500));
+            }
           }
+        } finally {
+          if (activeServer) activeServer.close();
+          activeServer = null;
         }
-
-        if (activeServer) activeServer.close();
-        activeServer = null;
         const report = computeOverallGrade(results);
         send('fuzzer-report', report);
         return { results };
@@ -462,25 +468,27 @@ ipcMain.handle('run-fuzzer', async (event, opts) => {
 
     const totalTlsWithLoops = scenarios.length * loopCount;
 
-    for (let loop = 0; loop < loopCount; loop++) {
-      if (activeServer.aborted) break;
-      if (loopCount > 1) {
-        send('fuzzer-packet', { type: 'info', message: `── Loop ${loop + 1} / ${loopCount} ──` });
-      }
-      for (const scenario of scenarios) {
+    try {
+      for (let loop = 0; loop < loopCount; loop++) {
         if (activeServer.aborted) break;
-        send('fuzzer-progress', { scenario: scenario.name, total: totalTlsWithLoops, current: results.length + 1 });
-        const clientPromise = spawnLocalClient('tls', 500);
-        const result = await activeServer.runScenario(scenario);
-        if (clientPromise) { const c = await clientPromise; c.stop(); }
-        results.push(result);
-        send('fuzzer-result', result);
-        await new Promise(r => setTimeout(r, 300));
+        if (loopCount > 1) {
+          send('fuzzer-packet', { type: 'info', message: `── Loop ${loop + 1} / ${loopCount} ──` });
+        }
+        for (const scenario of scenarios) {
+          if (activeServer.aborted) break;
+          send('fuzzer-progress', { scenario: scenario.name, total: totalTlsWithLoops, current: results.length + 1 });
+          const clientPromise = spawnLocalClient('tls', 500);
+          const result = await activeServer.runScenario(scenario);
+          if (clientPromise) { const c = await clientPromise; c.stop(); }
+          results.push(result);
+          send('fuzzer-result', result);
+          await new Promise(r => setTimeout(r, 300));
+        }
       }
+    } finally {
+      if (activeServer) activeServer.close();
+      activeServer = null;
     }
-
-    if (activeServer) activeServer.close();
-    activeServer = null;
 
     const report = computeOverallGrade(results);
     send('fuzzer-report', report);
@@ -510,7 +518,7 @@ ipcMain.handle('save-pcap-dialog', async () => {
 // Save Log to specific file path
 ipcMain.handle('save-log-to-file', async (event, filePath, content) => {
   try {
-    require('fs').appendFileSync(filePath, content + '\n\n');
+    require('fs').appendFileSync(filePath, content);
     return { success: true };
   } catch (err) {
     return { success: false, error: err.message };

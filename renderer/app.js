@@ -67,7 +67,10 @@
   // State
   let running = false;
   let pcapFile = null;
+  let logToFile = false;
+  let logFileHeader = false;
   let results = [];
+  let pendingPackets = [];
   let allScenarios = {};
   let categories = {};
   let defaultDisabled = new Set();
@@ -820,6 +823,7 @@
 
     setRunning(true);
     results = [];
+    logFileHeader = false;
     resultsBody.innerHTML = '';
     resultsEmpty.style.display = 'none';
     resultsTable.style.display = 'table';
@@ -967,6 +971,7 @@
 
     setRunning(true);
     results = [];
+    logFileHeader = false;
     resultsBody.innerHTML = '';
     resultsEmpty.style.display = 'none';
     resultsTable.style.display = 'table';
@@ -988,8 +993,8 @@
       const configResult = await window.fuzzer.distributedConfigure({
         clientScenarios: clientScenariosFinal.length > 0 ? clientScenariosFinal : null,
         serverScenarios: serverScenariosFinal.length > 0 ? serverScenariosFinal : null,
-        clientConfig: { host, port, delay, timeout, protocol: activeProtocol, dut },
-        serverConfig: { hostname: host, port, delay, timeout, protocol: activeProtocol, dut },
+        clientConfig: { host, port, delay, timeout, protocol: activeProtocol, dut, pcapFile: pcapFile || null, baseline: baselineCheck.checked },
+        serverConfig: { hostname: host, port, delay, timeout, protocol: activeProtocol, dut, pcapFile: pcapFile || null, baseline: baselineCheck.checked },
       });
 
       if (configResult.error) {
@@ -1095,18 +1100,22 @@
     const p = rolePrefix || '';
     switch (evt.type) {
       case 'scenario':
+        pendingPackets = [];
         addLogEntry('scenario-name', `${p}--- ${evt.name}: ${evt.description} ---`);
         break;
       case 'sent':
+        pendingPackets.push({ ts: new Date().toISOString(), type: 'sent', label: evt.label, size: evt.size, hex: evt.hex });
         addLogEntry('sent', `${p}\u2192 ${evt.label || 'Sent'} (${evt.size} bytes)`);
         if (evt.hex) addHexDump(evt.hex);
         break;
       case 'received':
-        addLogEntry('received', `${p}\u2190 ${evt.description || 'Received'} (${evt.size} bytes)`);
+        pendingPackets.push({ ts: new Date().toISOString(), type: 'received', label: evt.label, size: evt.size, hex: evt.hex });
+        addLogEntry('received', `${p}\u2190 ${evt.label || 'Received'} (${evt.size} bytes)`);
         if (evt.hex) addHexDump(evt.hex);
         break;
       case 'tcp':
-        addLogEntry('tcp', `${p}[TCP] ${evt.direction === 'sent' ? '\u2192' : '\u2190'} ${evt.flag}`);
+        pendingPackets.push({ ts: new Date().toISOString(), type: 'tcp', direction: evt.direction, flag: evt.event });
+        addLogEntry('tcp', `${p}[TCP] ${evt.direction === 'sent' ? '\u2192' : '\u2190'} ${evt.event}`);
         break;
       case 'fuzz':
         addLogEntry('fuzz', `${p}[FUZZ] ${evt.message}`);
@@ -1214,9 +1223,26 @@
 
     result.expected = expected;
     result.expectedReason = expectedReason;
+    result.packets = pendingPackets;
+    pendingPackets = [];
     // Don't overwrite result.verdict if it came from IPC
     if (!result.verdict || result.verdict === 'N/A') result.verdict = verdict;
     results.push(result);
+
+    // Stream result to log file if logging is enabled
+    if (logToFile) {
+      const filePath = logPathInput.value.trim();
+      if (filePath) {
+        let content = '';
+        if (!logFileHeader) {
+          content += `--- Protocol Fuzzer Run Log: ${new Date().toISOString()} ---\n`;
+          content += `--- Verbose Mode: ${verboseCheck.checked ? 'ON' : 'OFF'} ---\n\n`;
+          logFileHeader = true;
+        }
+        content += formatResultLogEntry(result);
+        window.fuzzer.saveLogToFile(filePath, content).catch(() => {});
+      }
+    }
 
     const idx = results.length;
     const scenario = result.scenario || '?';
@@ -1245,7 +1271,6 @@
     resultsBody.appendChild(tr);
     tr.scrollIntoView({ block: 'nearest' });
     exportJsonBtn.disabled = false;
-    logToFileBtn.disabled = false;
   }
 
   function handleProgress(prog) {
@@ -1377,80 +1402,81 @@
     URL.revokeObjectURL(url);
   });
 
-  logToFileBtn.addEventListener('click', async () => {
-    if (results.length === 0) return;
-    const filePath = logPathInput.value.trim();
-    if (!filePath) {
-      alert('Please enter a valid file path in the input box to the left of the button.');
-      return;
-    }
-    
+  // Format a single result entry for the log file
+  function formatResultLogEntry(r) {
+    const meta = findScenarioMeta(r.scenario);
     const isVerbose = verboseCheck.checked;
-    let logContent = `--- Protocol Fuzzer Run Log: ${new Date().toISOString()} ---\n`;
-    logContent += `--- Verbose Mode: ${isVerbose ? 'ON' : 'OFF'} ---\n\n`;
+    let entry = `==========================================================\n`;
+    entry += `Scenario: ${r.scenario}\n`;
+    entry += `Category: ${meta ? meta.category : 'Unknown'}\n`;
+    entry += `Description: ${meta ? meta.description : 'N/A'}\n`;
+    entry += `Status: ${r.status}\n`;
+    entry += `Verdict: ${r.verdict}\n`;
+    entry += `Target Response: ${r.response}\n`;
 
-    for (const r of results) {
-      const meta = findScenarioMeta(r.scenario);
-      logContent += `==========================================================\n`;
-      logContent += `Scenario: ${r.scenario}\n`;
-      logContent += `Category: ${meta ? meta.category : 'Unknown'}\n`;
-      logContent += `Description: ${meta ? meta.description : 'N/A'}\n`;
-      logContent += `Status: ${r.status}\n`;
-      logContent += `Verdict: ${r.verdict}\n`;
-      logContent += `Target Response: ${r.response}\n`;
-      
-      if (r.baselineCommand) {
-        logContent += `\n[OpenSSL Baseline Check]\n`;
-        logContent += `Command: ${r.baselineCommand}\n`;
-        logContent += `Response: ${r.baselineResponse}\n`;
-        const match = r.response === r.baselineResponse ? 'YES' : 'NO';
-        logContent += `Matches Baseline: ${match}\n`;
-      }
+    if (r.baselineCommand) {
+      entry += `\n[OpenSSL Baseline Check]\n`;
+      entry += `Command: ${r.baselineCommand}\n`;
+      entry += `Response: ${r.baselineResponse}\n`;
+      const match = r.response === r.baselineResponse ? 'YES' : 'NO';
+      entry += `Matches Baseline: ${match}\n`;
+    }
 
-      if (isVerbose && r.packets && r.packets.length > 0) {
-        logContent += `\n[Packet Trace]\n`;
-        for (const p of r.packets) {
-          const dir = (p.type === 'sent' || (p.type === 'tcp' && p.direction === 'sent')) ? '→' : '←';
-          logContent += `${p.ts} ${dir} ${p.label || p.flag || p.type} (${p.size || 0} bytes)\n`;
-          if (p.hex) {
-            // Simple hex dump formatter for the text log
-            const hex = p.hex;
-            for (let i = 0; i < hex.length; i += 32) {
-              const chunk = hex.substr(i, 32);
-              let line = `    ${(i/2).toString(16).padStart(8, '0')}  `;
-              for (let j = 0; j < chunk.length; j += 2) {
-                line += chunk.substr(j, 2) + ' ';
-                if (j === 14) line += ' ';
-              }
-              logContent += line + '\n';
+    if (isVerbose && r.packets && r.packets.length > 0) {
+      entry += `\n[Packet Trace]\n`;
+      for (const p of r.packets) {
+        const dir = (p.type === 'sent' || (p.type === 'tcp' && p.direction === 'sent')) ? '\u2192' : '\u2190';
+        entry += `${p.ts} ${dir} ${p.label || p.flag || p.type} (${p.size || 0} bytes)\n`;
+        if (p.hex) {
+          const hex = p.hex;
+          for (let i = 0; i < hex.length; i += 32) {
+            const chunk = hex.substr(i, 32);
+            let line = `    ${(i/2).toString(16).padStart(8, '0')}  `;
+            for (let j = 0; j < chunk.length; j += 2) {
+              line += chunk.substr(j, 2) + ' ';
+              if (j === 14) line += ' ';
             }
+            entry += line + '\n';
           }
         }
       }
-      logContent += `\n\n`;
     }
+    entry += `\n`;
+    return entry;
+  }
 
-    try {
-      const res = await window.fuzzer.saveLogToFile(filePath, logContent);
-      if (res.success) {
-        alert('Log successfully appended to ' + filePath);
-      } else {
-        alert('Failed to save log: ' + res.error);
-      }
-    } catch (err) {
-      alert('Failed to save log: ' + err.message);
+  logToFileBtn.addEventListener('click', () => {
+    if (logToFile) {
+      // Toggle OFF
+      logToFile = false;
+      logFileHeader = false;
+      logToFileBtn.textContent = 'Log: OFF';
+      logToFileBtn.classList.remove('active');
+      logPathInput.disabled = false;
+      return;
     }
+    const filePath = logPathInput.value.trim();
+    if (!filePath) {
+      alert('Please enter a file path first.');
+      return;
+    }
+    // Toggle ON
+    logToFile = true;
+    logFileHeader = false;
+    logToFileBtn.textContent = 'Log: ON';
+    logToFileBtn.classList.add('active');
+    logPathInput.disabled = true;
   });
 
   // Clear buttons
   clearResultsBtn.addEventListener('click', () => {
     results = [];
+    pendingPackets = [];
     lastReport = null;
     resultsBody.innerHTML = '';
     resultsEmpty.style.display = 'block';
     resultsTable.style.display = 'table';
     exportJsonBtn.disabled = true;
-    logToFileBtn.disabled = true;
     summaryBar.style.display = 'none';
     statusBadge.textContent = 'IDLE';
     statusBadge.className = 'header-status';
