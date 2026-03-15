@@ -1206,6 +1206,10 @@
     if (distributedMode && result.agentRole) {
       modeSelect.value = result.agentRole;
     }
+    // Hide well-behaved counterpart results — they are internal helpers, not actual tests
+    if (result.scenario && result.scenario.startsWith('well-behaved-')) {
+      return;
+    }
     const meta = findScenarioMeta(result.scenario);
     const expected = meta ? meta.expected : null;
     const expectedReason = meta ? meta.expectedReason : '';
