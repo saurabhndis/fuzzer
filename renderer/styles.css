@@ -223,10 +223,18 @@ body {
   transform: rotate(-90deg);
 }
 
+.category-header .cat-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
 .category-header .count {
   color: var(--text-muted);
   font-weight: 400;
   margin-left: auto;
+  flex-shrink: 0;
 }
 
 .category-header .opt-in-tag {
@@ -425,6 +433,11 @@ body {
   text-transform: uppercase;
 }
 
+.btn-tiny.select-cat-only {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
 .btn-tiny:hover {
   background: var(--bg-hover);
   color: var(--text-primary);
@@ -435,6 +448,7 @@ body {
   display: flex;
   gap: 4px;
   margin-left: 10px;
+  flex-shrink: 0;
 }
 
 .pcap-controls {

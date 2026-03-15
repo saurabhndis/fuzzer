@@ -432,6 +432,7 @@
         <span class="cat-label">${cat}: ${label}</span>
         <span class="count">${items.length}</span>${disabledTag}
         <div class="category-controls" onclick="event.stopPropagation()">
+          <button class="btn-tiny select-cat-only" title="Select ONLY this category (deselect everything else)">Only</button>
           <button class="btn-tiny select-cat-all" title="Select all in this category">All</button>
           <button class="btn-tiny select-cat-none" title="Deselect all in this category">None</button>
         </div>
@@ -447,6 +448,10 @@
       });
 
       // Category selection logic
+      header.querySelector('.select-cat-only').onclick = () => {
+        scenariosList.querySelectorAll('input[type="checkbox"]').forEach(cb => cb.checked = false);
+        itemsDiv.querySelectorAll('input[type="checkbox"]:not(:disabled)').forEach(cb => cb.checked = true);
+      };
       header.querySelector('.select-cat-all').onclick = () => {
         itemsDiv.querySelectorAll('input[type="checkbox"]:not(:disabled)').forEach(cb => cb.checked = true);
       };
@@ -501,6 +506,7 @@
       <span class="cat-label">${cat}: ${label}</span>
       <span class="count">${items.length}</span>
       <div class="category-controls" onclick="event.stopPropagation()">
+        <button class="btn-tiny select-cat-only" title="Select ONLY this category (deselect everything else)">Only</button>
         <button class="btn-tiny select-cat-all" title="Select all in this category">All</button>
         <button class="btn-tiny select-cat-none" title="Deselect all in this category">None</button>
       </div>
@@ -516,6 +522,10 @@
     });
 
     // Category selection logic
+    header.querySelector('.select-cat-only').onclick = () => {
+      scenariosList.querySelectorAll('input[type="checkbox"]').forEach(cb => cb.checked = false);
+      itemsDiv.querySelectorAll('input[type="checkbox"]:not(:disabled)').forEach(cb => cb.checked = true);
+    };
     header.querySelector('.select-cat-all').onclick = () => {
       itemsDiv.querySelectorAll('input[type="checkbox"]:not(:disabled)').forEach(cb => cb.checked = true);
     };
@@ -678,7 +688,16 @@
       const disabledTag = defaultDisabled.has(cat)
         ? ' <span class="opt-in-tag">opt-in</span>'
         : '';
-      header.innerHTML = `<span class="arrow">&#9660;</span> ${cat}: ${label} <span class="count">${items.length}</span>${disabledTag}`;
+      header.innerHTML = `
+        <span class="arrow">&#9660;</span>
+        <span class="cat-label">${cat}: ${label}</span>
+        <span class="count">${items.length}</span>${disabledTag}
+        <div class="category-controls" onclick="event.stopPropagation()">
+          <button class="btn-tiny select-cat-only" title="Select ONLY this category (deselect everything else)">Only</button>
+          <button class="btn-tiny select-cat-all" title="Select all in this category">All</button>
+          <button class="btn-tiny select-cat-none" title="Deselect all in this category">None</button>
+        </div>
+      `;
 
       const itemsDiv = document.createElement('div');
       itemsDiv.className = 'category-items';
@@ -688,6 +707,18 @@
         itemsDiv.classList.toggle('collapsed');
         arrow.classList.toggle('collapsed');
       });
+
+      // Category selection logic
+      header.querySelector('.select-cat-only').onclick = () => {
+        scenariosList.querySelectorAll('input[type="checkbox"]').forEach(cb => cb.checked = false);
+        itemsDiv.querySelectorAll('input[type="checkbox"]:not(:disabled)').forEach(cb => cb.checked = true);
+      };
+      header.querySelector('.select-cat-all').onclick = () => {
+        itemsDiv.querySelectorAll('input[type="checkbox"]:not(:disabled)').forEach(cb => cb.checked = true);
+      };
+      header.querySelector('.select-cat-none').onclick = () => {
+        itemsDiv.querySelectorAll('input[type="checkbox"]').forEach(cb => cb.checked = false);
+      };
 
       for (const s of items) {
         const item = document.createElement('label');
