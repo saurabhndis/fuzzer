@@ -48,7 +48,7 @@
   <div class="container">
     <h1>Test Scenario Reference</h1>
 <p>Complete catalog of all fuzzer test scenarios across <strong>754 tests</strong> in <strong>6 protocols</strong>.</p>
-<h2>How to Read This Document</h2>
+<h2 id="how-to-read-this-document">How to Read This Document</h2>
 <p>Each test sends crafted protocol data and checks the target&#39;s response:</p>
 <table>
 <thead>
@@ -87,7 +87,7 @@
 <li><strong>Client → Server</strong> — Fuzzer connects to target and sends malformed data</li>
 <li><strong>Server → Client</strong> — Fuzzer acts as server and sends malformed responses to connecting client</li>
 </ul>
-<h2>Table of Contents</h2>
+<h2 id="table-of-contents">Table of Contents</h2>
 <ul>
 <li><a href="#tls-scenarios"><strong>TLS</strong> (445 tests)</a><ul>
 <li><a href="#a-handshake-order-violations-client">A: Handshake Order Violations (Client) (10)</a></li>
@@ -165,8 +165,8 @@
 </li>
 </ul>
 <hr>
-<h2>TLS Scenarios</h2>
-<h3>A: Handshake Order Violations (Client)</h3>
+<h2 id="tls-scenarios">TLS Scenarios</h2>
+<h3 id="a-handshake-order-violations-client">A: Handshake Order Violations (Client)</h3>
 <blockquote>
 <p>🟠 high · 10 tests · 10 Client → Server</p>
 </blockquote>
@@ -262,7 +262,7 @@
 <td>✅ if rejected; ❌ if accepted. Must reject handshake order violations (protocol state machine bypass)</td>
 </tr>
 </tbody></table>
-<h3>B: Handshake Order Violations (Server)</h3>
+<h3 id="b-handshake-order-violations-server">B: Handshake Order Violations (Server)</h3>
 <blockquote>
 <p>🟠 high · 5 tests · 5 Server → Client</p>
 </blockquote>
@@ -318,7 +318,7 @@
 <td>✅ if rejected; ❌ if accepted. Must reject server handshake order violations (state machine bypass)</td>
 </tr>
 </tbody></table>
-<h3>C: Parameter Mutation</h3>
+<h3 id="c-parameter-mutation">C: Parameter Mutation</h3>
 <blockquote>
 <p>🟡 medium · 10 tests · 8 Client → Server, 2 Server → Client</p>
 </blockquote>
@@ -414,7 +414,7 @@
 <td>✅ if rejected; ❌ if accepted. Must reject parameter mutation (downgrade/mismatch attacks)</td>
 </tr>
 </tbody></table>
-<h3>D: Alert Injection</h3>
+<h3 id="d-alert-injection">D: Alert Injection</h3>
 <blockquote>
 <p>🟡 medium · 12 tests · 12 Client → Server</p>
 </blockquote>
@@ -526,7 +526,7 @@
 <td>✅ if rejected; ❌ if accepted. Must reject alert injection (protocol confusion)</td>
 </tr>
 </tbody></table>
-<h3>E: TCP Manipulation</h3>
+<h3 id="e-tcp-manipulation">E: TCP Manipulation</h3>
 <blockquote>
 <p>🔵 low · 12 tests · 10 Client → Server, 2 Server → Client</p>
 </blockquote>
@@ -638,7 +638,7 @@
 <td>✅ if rejected; ❌ if accepted. Must reject TCP manipulation abuse</td>
 </tr>
 </tbody></table>
-<h3>F: Record Layer Attacks</h3>
+<h3 id="f-record-layer-attacks">F: Record Layer Attacks</h3>
 <blockquote>
 <p>🟠 high · 22 tests · 22 Client → Server</p>
 </blockquote>
@@ -830,7 +830,7 @@
 <td>✅ if rejected; ❌ if accepted. Must reject record layer violations (fundamental protocol violations)</td>
 </tr>
 </tbody></table>
-<h3>G: ChangeCipherSpec Attacks</h3>
+<h3 id="g-changecipherspec-attacks">G: ChangeCipherSpec Attacks</h3>
 <blockquote>
 <p>🟠 high · 8 tests · 8 Client → Server</p>
 </blockquote>
@@ -910,7 +910,7 @@
 <td>✅ if rejected; ❌ if accepted. Must reject CCS attacks (CVE-2014-0224 vector)</td>
 </tr>
 </tbody></table>
-<h3>H: Extension Fuzzing</h3>
+<h3 id="h-extension-fuzzing">H: Extension Fuzzing</h3>
 <blockquote>
 <p>🟡 medium · 10 tests · 10 Client → Server</p>
 </blockquote>
@@ -1006,7 +1006,7 @@
 <td>✅ if rejected; ❌ if accepted. Must reject extension fuzzing (parser robustness)</td>
 </tr>
 </tbody></table>
-<h3>I: Known Vulnerability Detection (CVEs)</h3>
+<h3 id="i-known-vulnerability-detection-cves">I: Known Vulnerability Detection (CVEs)</h3>
 <blockquote>
 <p>🔴 critical · 32 tests · 32 Client → Server</p>
 </blockquote>
@@ -1278,7 +1278,7 @@
 <td>✅ if rejected; ❌ if accepted. Must reject known vulnerability vectors (CVE detection)</td>
 </tr>
 </tbody></table>
-<h3>J: Post-Quantum Cryptography (PQC)</h3>
+<h3 id="j-post-quantum-cryptography-pqc">J: Post-Quantum Cryptography (PQC)</h3>
 <blockquote>
 <p>🔵 low · 16 tests · 16 Client → Server</p>
 </blockquote>
@@ -1422,7 +1422,7 @@
 <td>✅ if accepted; ⚠️ if rejected. Must reject invalid PQC key material</td>
 </tr>
 </tbody></table>
-<h3>K: SNI Evasion &amp; Fragmentation</h3>
+<h3 id="k-sni-evasion-fragmentation">K: SNI Evasion &amp; Fragmentation</h3>
 <blockquote>
 <p>🟡 medium · 16 tests · 16 Client → Server</p>
 </blockquote>
@@ -1566,7 +1566,7 @@
 <td>✅ if rejected; ❌ if accepted. Must reject SNI evasion and fragmentation attacks</td>
 </tr>
 </tbody></table>
-<h3>L: ALPN Protocol Confusion</h3>
+<h3 id="l-alpn-protocol-confusion">L: ALPN Protocol Confusion</h3>
 <blockquote>
 <p>🟡 medium · 13 tests · 12 Client → Server, 1 Server → Client</p>
 </blockquote>
@@ -1686,7 +1686,7 @@
 <td>✅ if rejected; ❌ if accepted. Must reject ALPN protocol confusion</td>
 </tr>
 </tbody></table>
-<h3>M: Extension Malformation &amp; Placement</h3>
+<h3 id="m-extension-malformation-placement">M: Extension Malformation &amp; Placement</h3>
 <blockquote>
 <p>🟡 medium · 22 tests · 22 Client → Server</p>
 </blockquote>
