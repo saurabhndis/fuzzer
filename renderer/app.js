@@ -1062,6 +1062,8 @@
       window.fuzzer.openFirewall(dut);
     }
 
+    const workers = parseInt(workersInput.value, 10) || 1;
+
     // Configure agents
     addLogEntry('info', `Configuring agents: ${clientScenarios.length} client, ${serverScenarios.length} server scenarios`);
 
@@ -1069,8 +1071,8 @@
       const configResult = await window.fuzzer.distributedConfigure({
         clientScenarios: clientScenariosFinal.length > 0 ? clientScenariosFinal : null,
         serverScenarios: serverScenariosFinal.length > 0 ? serverScenariosFinal : null,
-        clientConfig: { host, port, delay, timeout, protocol: activeProtocol, dut, pcapFile: pcapFile || null, baseline: baselineCheck.checked },
-        serverConfig: { hostname: host, port, delay, timeout, protocol: activeProtocol, dut, pcapFile: pcapFile || null, baseline: baselineCheck.checked },
+        clientConfig: { host, port, delay, timeout, workers, protocol: activeProtocol, dut, pcapFile: pcapFile || null, baseline: baselineCheck.checked },
+        serverConfig: { hostname: host, port, delay, timeout, workers, protocol: activeProtocol, dut, pcapFile: pcapFile || null, baseline: baselineCheck.checked },
       });
 
       if (configResult.error) {

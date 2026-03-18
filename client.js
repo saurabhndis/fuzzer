@@ -33,6 +33,7 @@ const USAGE = `
     --protocol <tls|raw-tcp|h2|quic> Protocol type (default: tls)
     --delay <ms>            Delay between actions (default: 100)
     --timeout <ms>          Connection timeout (default: 5000)
+    --workers <num>         Number of concurrent worker processes (default: CPU count)
     --verbose               Show hex dumps of all packets
     --json                  Output results as JSON
     --pcap <file.pcap>      Record packets to PCAP file
@@ -91,22 +92,26 @@ function getScenarios(args, useRawTcp, protocol) {
       process.exit(1);
     }
   } else if (args.scenario) {
-    let s;
-    if (useRawTcp) s = getTcpScenario(args.scenario);
-    else if (protocol === 'h2') s = getHttp2Scenario(args.scenario);
-    else if (protocol === 'quic') s = getQuicScenario(args.scenario);
+    const names = args.scenario.split(',');
+    scenarios = [];
+    for (const name of names) {
+      let s;
+      if (useRawTcp) s = getTcpScenario(name);
+      else if (protocol === 'h2') s = getHttp2Scenario(name);
+      else if (protocol === 'quic') s = getQuicScenario(name);
 
-    if (!s) s = getScenario(args.scenario);
+      if (!s) s = getScenario(name);
 
-    if (!s) {
-      console.error(`Unknown scenario: ${args.scenario}`);
-      process.exit(1);
+      if (!s) {
+        console.error(`Unknown scenario: ${name}`);
+        process.exit(1);
+      }
+      if (s.side !== 'client') {
+        console.error(`Scenario "${name}" is a server-side scenario.`);
+        process.exit(1);
+      }
+      scenarios.push(s);
     }
-    if (s.side !== 'client') {
-      console.error(`Scenario "${args.scenario}" is a server-side scenario.`);
-      process.exit(1);
-    }
-    scenarios = [s];
   } else {
     console.error('Error: specify --scenario <name|all> or --category <A-Z|RA-RG>');
     console.log(USAGE);
@@ -138,45 +143,22 @@ async function primaryMain(args) {
   const useRawTcp = protocol === 'raw-tcp';
 
   if (useRawTcp && !isRawAvailable()) {
-    console.warn('\x1b[33mWarning: Raw sockets not available. Requires CAP_NET_RAW on Linux.\x1b[0m');
+    console.error('\x1b[33mWarning: Raw sockets not available. Requires CAP_NET_RAW on Linux.\x1b[0m');
+    console.error('  Run: sudo setcap cap_net_raw+ep $(which node)');
+    console.error('  Raw TCP scenarios will be skipped.\n');
   }
-
-  console.log('');
-  console.log('  \x1b[1m\x1b[36mTLS/TCP Protocol Fuzzer — Client\x1b[0m');
-  console.log('');
-  console.log(`  \x1b[90mTarget\x1b[0m        ${host}:${port}`);
-  console.log(`  \x1b[90mProtocol\x1b[0m      ${protocol}`);
-  console.log('');
 
   const scenarios = getScenarios(args, useRawTcp, protocol);
-
-  if (args.scenario === 'all') {
-    console.log(`  Running ${scenarios.length} client scenarios (opt-in categories excluded, use --category to include)`);
-  }
-
-  console.log(`  \x1b[90mScenarios\x1b[0m     ${scenarios.length} scenario(s) queued`);
-  console.log('');
-
   const workerCount = parseInt(args.workers) || os.cpus().length;
 
-  // Single-worker mode: run directly without forking
-  if (workerCount <= 1) {
-    const delay = parseInt(args.delay) || 100;
-    const timeout = parseInt(args.timeout) || 5000;
-    const pcapFile = args.pcap || null;
-    const logger = new Logger({ verbose: args.verbose, json: args.json });
-    const client = new UnifiedClient({ host, port, timeout, delay, logger, pcapFile });
+  console.log(`
+  TLS/TCP Protocol Fuzzer — Client
 
-    process.on('SIGINT', () => { client.abort(); client.close(); process.exit(0); });
-
-    const { results, report } = await client.runScenarios(scenarios);
-    client.close();
-    if (pcapFile) logger.info(`PCAP saved to: ${pcapFile}`);
-    const hasErrors = results.some(r => r.status === 'ERROR');
-    const hostWentDown = results.some(r => r.hostDown);
-    const hasFails = report && report.stats.fail > 0;
-    process.exit(hasErrors || hostWentDown || hasFails ? 1 : 0);
-  }
+  Target        ${host}:${port}
+  Protocol      ${protocol}
+  Scenarios     ${scenarios.length}
+  Workers       ${workerCount}
+  `);
 
   console.log(`  Forking ${workerCount} worker processes for concurrent fuzzing...`);
 
