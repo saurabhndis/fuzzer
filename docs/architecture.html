@@ -350,8 +350,748 @@ graph TD
             </div>
         </section>
 
+        <section id="nodejs-fundamentals">
+            <h2>9. How Node.js Powers This Project</h2>
+            <p>Node.js is the runtime foundation for the entire fuzzer. Understanding its architecture explains <em>why</em> this tool can fuzz thousands of connections concurrently on a single machine without thread-per-connection overhead.</p>
+
+            <h3>Event Loop & Non-Blocking I/O</h3>
+            <p>Node.js runs JavaScript on Google's V8 engine atop <strong>libuv</strong>, which provides an event loop and cross-platform async I/O. Every network operation &mdash; TCP connect, TLS handshake, UDP send &mdash; is non-blocking. The fuzzer issues a <code>socket.write()</code> and immediately proceeds to the next action; a <code>'data'</code> event fires when the target responds. This is what allows a single worker process to manage hundreds of in-flight fuzz connections simultaneously.</p>
+
+            <div class="diagram-card">
+                <div class="mermaid">
+graph LR
+    subgraph "Node.js Event Loop (single thread)"
+        Poll[Poll Phase: I/O callbacks] --> Check[Check Phase: setImmediate]
+        Check --> Timers[Timers Phase: setTimeout / delay actions]
+        Timers --> Poll
+    end
+
+    subgraph "libuv Thread Pool (4 threads)"
+        DNS[DNS Lookups]
+        FS[File I/O: PCAP writes]
+        Crypto[TLS Key Derivation]
+    end
+
+    Poll -->|delegates| DNS
+    Poll -->|delegates| FS
+    Poll -->|delegates| Crypto
+                </div>
+            </div>
+
+            <h3>Module System & Project Layout</h3>
+            <p>The project uses <strong>CommonJS</strong> (<code>require()</code> / <code>module.exports</code>). The entry point depends on the interface:</p>
+            <table class="matrix-table">
+                <thead>
+                    <tr><th>Interface</th><th>Entry Point</th><th>Command</th></tr>
+                </thead>
+                <tbody>
+                    <tr><td>Electron GUI</td><td><code>main.js</code></td><td><code>npm start</code></td></tr>
+                    <tr><td>CLI (client)</td><td><code>client.js</code></td><td><code>npm run client</code></td></tr>
+                    <tr><td>CLI (server)</td><td><code>server.js</code></td><td><code>npm run server</code></td></tr>
+                    <tr><td>Agent (distributed)</td><td><code>client.js --agent</code></td><td><code>npm run agent-client</code></td></tr>
+                </tbody>
+            </table>
+
+            <h3>Key Dependencies</h3>
+            <p>The fuzzer deliberately keeps a minimal dependency tree. All protocol encoding &mdash; TLS records, HTTP/2 frames, QUIC packets &mdash; is <strong>pure JavaScript</strong> using Node.js <code>Buffer</code>. No OpenSSL bindings are used for packet construction; OpenSSL is only invoked as an external binary for baseline comparisons.</p>
+            <table class="matrix-table">
+                <thead>
+                    <tr><th>Package</th><th>Purpose</th><th>Required?</th></tr>
+                </thead>
+                <tbody>
+                    <tr><td><code>electron</code></td><td>Desktop GUI shell</td><td>Dev only</td></tr>
+                    <tr><td><code>@currentspace/http3</code></td><td>Quiche bindings for stateful QUIC</td><td>Optional</td></tr>
+                    <tr><td><code>raw-socket</code></td><td>Raw IP/TCP socket construction</td><td>Optional (Linux + CAP_NET_RAW)</td></tr>
+                    <tr><td><code>xml2js</code></td><td>PAN-OS firewall API parsing</td><td>Optional</td></tr>
+                </tbody>
+            </table>
+
+            <h3>Built-in Modules Used Extensively</h3>
+            <p>The fuzzer relies heavily on Node.js built-in modules rather than third-party packages:</p>
+            <div class="payload-grid">
+                <div class="payload-card" style="border-top-color: var(--primary);">
+                    <h4><code>net</code></h4>
+                    <p>Raw TCP sockets for TLS record-level fuzzing. Every TLS fuzz scenario creates a <code>net.Socket</code> and writes hand-crafted bytes.</p>
+                </div>
+                <div class="payload-card" style="border-top-color: var(--success);">
+                    <h4><code>tls</code></h4>
+                    <p>Well-behaved baseline connections. Used only for "golden path" tests to confirm the target is alive and accepts valid TLS.</p>
+                </div>
+                <div class="payload-card" style="border-top-color: var(--secondary);">
+                    <h4><code>http2</code></h4>
+                    <p>Both compliant HTTP/2 sessions (baseline) and as a transport for frame-level injection after ALPN negotiation.</p>
+                </div>
+                <div class="payload-card" style="border-top-color: var(--accent);">
+                    <h4><code>dgram</code></h4>
+                    <p>UDP sockets for stateless QUIC Initial packet fuzzing. Sends raw QUIC packets without any handshake state.</p>
+                </div>
+                <div class="payload-card" style="border-top-color: var(--warning);">
+                    <h4><code>child_process</code></h4>
+                    <p>Fork-based worker pool. Also spawns <code>openssl s_client</code> for baseline testing and QUIC post-handshake injection.</p>
+                </div>
+                <div class="payload-card" style="border-top-color: var(--danger);">
+                    <h4><code>crypto</code></h4>
+                    <p>Self-signed X.509 certificate generation (RSA 2048-bit) and QUIC Initial packet AEAD key derivation.</p>
+                </div>
+            </div>
+        </section>
+
+        <section id="electron-architecture">
+            <h2>10. Electron Application Architecture</h2>
+            <p>The Electron GUI provides a visual interface for selecting scenarios, running fuzz campaigns, and viewing results in real time. It follows Electron's security-first <strong>context isolation</strong> model.</p>
+
+            <div class="diagram-card">
+                <div class="mermaid">
+graph TD
+    subgraph "Electron Application"
+        subgraph "Main Process (main.js)"
+            IPC[ipcMain Handlers]
+            WM[Window Manager]
+            Fork[child_process.fork]
+        end
+
+        subgraph "Renderer Process (renderer/)"
+            UI[app.js — 3000+ lines]
+            HTML[index.html — Tab UI]
+            CSS[styles.css — Dark Theme]
+        end
+
+        subgraph "Preload Bridge (preload.js)"
+            CTX[contextBridge.exposeInMainWorld]
+        end
+
+        subgraph "Worker Subprocess (lib/ui-worker.js)"
+            UC2[UnifiedClient / UnifiedServer]
+        end
+    end
+
+    UI -->|window.fuzzer.*| CTX
+    CTX -->|ipcRenderer.invoke| IPC
+    IPC -->|fork + IPC messages| Fork
+    Fork -->|child_process| UC2
+    UC2 -->|process.send result| Fork
+    Fork -->|event → ipcMain| IPC
+    IPC -->|ipcRenderer.on| UI
+                </div>
+            </div>
+
+            <h3>Process Isolation Model</h3>
+            <div class="logic-grid">
+                <div class="logic-box" style="border: 2px solid var(--primary);">
+                    <h4 style="color: var(--primary);">Main Process (Node.js)</h4>
+                    <p>Full Node.js access. Manages the BrowserWindow, handles IPC from the renderer, spawns ui-worker subprocesses, and manages PAN-OS firewall API connections. Never touches protocol fuzzing directly.</p>
+                </div>
+                <div class="logic-box" style="border: 2px solid var(--secondary);">
+                    <h4 style="color: var(--secondary);">Renderer Process (Chromium)</h4>
+                    <p>Sandboxed. No <code>require()</code>, no <code>fs</code>, no <code>net</code>. All fuzzer access goes through <code>window.fuzzer</code> and <code>window.panos</code> APIs exposed by the preload script via <code>contextBridge</code>.</p>
+                </div>
+            </div>
+
+            <h3>Exposed APIs</h3>
+            <p>The preload script (<code>preload.js</code>) exposes two namespaces to the renderer:</p>
+            <table class="matrix-table">
+                <thead>
+                    <tr><th>Namespace</th><th>Key Methods</th><th>Purpose</th></tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><code>window.fuzzer</code></td>
+                        <td><code>listScenarios()</code>, <code>run()</code>, <code>stop()</code>, <code>onResult()</code>, <code>onProgress()</code></td>
+                        <td>Core fuzzing control &mdash; list, execute, and stream results</td>
+                    </tr>
+                    <tr>
+                        <td><code>window.fuzzer</code></td>
+                        <td><code>distributedConnect()</code>, <code>distributedRun()</code>, <code>distributedResults()</code></td>
+                        <td>Remote agent orchestration for distributed fuzzing</td>
+                    </tr>
+                    <tr>
+                        <td><code>window.panos</code></td>
+                        <td><code>ping()</code>, <code>getApiKey()</code>, <code>runCommand()</code>, <code>systemInfo()</code></td>
+                        <td>PAN-OS firewall integration &mdash; query logs, pull threat data</td>
+                    </tr>
+                </tbody>
+            </table>
+
+            <h3>UI → Fuzzer Execution Flow</h3>
+            <div class="diagram-card">
+                <div class="mermaid">
+sequenceDiagram
+    participant R as Renderer (app.js)
+    participant P as Preload Bridge
+    participant M as Main Process
+    participant W as ui-worker.js
+    participant T as Target
+
+    R->>P: window.fuzzer.run(config)
+    P->>M: ipcRenderer.invoke('run-fuzzer', config)
+    M->>W: fork('lib/ui-worker.js')
+    M->>W: IPC: {cmd: 'init-client', opts}
+    W-->>M: IPC: {type: 'ready'}
+
+    loop For Each Selected Scenario
+        M->>W: IPC: {cmd: 'run', scenario}
+        W->>T: Protocol fuzz actions
+        T-->>W: Response / timeout / alert
+        W-->>M: IPC: {type: 'result', result}
+        M-->>R: ipcMain → webContents.send('fuzzer-result')
+        Note over R: Updates results table in real time
+    end
+
+    W-->>M: IPC: {type: 'done'}
+    M-->>R: webContents.send('fuzzer-report', grade)
+                </div>
+            </div>
+        </section>
+
+        <section id="test-architecture-deep-dive">
+            <h2>11. Fuzzer Test Architecture — Deep Dive</h2>
+            <p>The fuzzer implements a layered, protocol-aware testing architecture. Every scenario is a self-contained test case that produces a <strong>deterministic verdict</strong>: the target either handled the malformed input correctly (<code>PASS</code>) or it didn't (<code>FAIL</code>).</p>
+
+            <h3>Scenario Anatomy</h3>
+            <p>All 3,500+ scenarios across every protocol share a common structure:</p>
+            <div class="diagram-card">
+                <div class="mermaid">
+graph LR
+    subgraph "Scenario Object"
+        Name["name: 'tls-handshake-reorder-1'"]
+        Cat["category: 'A'"]
+        Side["side: 'client' | 'server'"]
+        Exp["expected: 'DROPPED'"]
+        Actions["actions(opts) → Action[]"]
+    end
+
+    subgraph "Action Types"
+        Send["send: raw bytes"]
+        Recv["recv: wait + timeout"]
+        Delay["delay: pause ms"]
+        Fin["fin: TCP FIN"]
+        Rst["rst: TCP RST"]
+        SlowDrip["slowDrip: byte-at-a-time"]
+        Fragment["fragment: split N chunks"]
+        Validate["validate: check msg types"]
+    end
+
+    Actions --> Send
+    Actions --> Recv
+    Actions --> Delay
+    Actions --> Fin
+    Actions --> Rst
+    Actions --> SlowDrip
+    Actions --> Fragment
+    Actions --> Validate
+                </div>
+            </div>
+
+            <h3>Unified Routing — Protocol Selection</h3>
+            <p>The <code>UnifiedClient</code> and <code>UnifiedServer</code> classes act as protocol routers. When a scenario is executed, the <strong>category prefix</strong> determines which protocol engine handles it:</p>
+            <table class="matrix-table">
+                <thead>
+                    <tr><th>Category Pattern</th><th>Protocol Engine</th><th>Transport</th><th>Scenario Count</th></tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><code>A–Z</code>, <code>SCAN</code>, <code>FV</code>, <code>FW</code>, <code>SB</code>, <code>PAN</code></td>
+                        <td><code>FuzzerClient</code> (lib/fuzzer-client.js)</td>
+                        <td>Raw TCP → hand-crafted TLS records</td>
+                        <td>~730</td>
+                    </tr>
+                    <tr>
+                        <td><code>AA–AO</code>, <code>H2S</code>, <code>AM</code></td>
+                        <td><code>Http2FuzzerClient</code> (lib/http2-fuzzer-client.js)</td>
+                        <td>TLS + ALPN h2 → HTTP/2 frames</td>
+                        <td>~68</td>
+                    </tr>
+                    <tr>
+                        <td><code>QA–QL</code>, <code>QS</code>, <code>QSCAN</code></td>
+                        <td><code>QuicFuzzerClient</code> (lib/quic-fuzzer-client.js)</td>
+                        <td>UDP → QUIC packets / OpenSSL / quiche</td>
+                        <td>~719</td>
+                    </tr>
+                    <tr>
+                        <td><code>RA–RH</code></td>
+                        <td><code>RawTCPClient</code> (lib/raw-tcp.js)</td>
+                        <td>Raw IP → hand-crafted TCP segments</td>
+                        <td>~53</td>
+                    </tr>
+                </tbody>
+            </table>
+        </section>
+
+        <section id="tls-deep-dive">
+            <h2>12. TLS Fuzzing Layer — Deep Dive</h2>
+            <p>TLS fuzzing is the largest and most granular layer, with <strong>26 scenario categories</strong> (A–Z) covering every phase of the TLS handshake and record layer.</p>
+
+            <h3>How It Works</h3>
+            <p>Unlike conventional TLS clients that use OpenSSL or Node's <code>tls</code> module, the fuzzer opens a <strong>raw TCP socket</strong> (<code>net.Socket</code>) and writes hand-crafted TLS records byte-by-byte. This bypasses all library-level validation, allowing the fuzzer to produce protocol states that no compliant implementation would generate.</p>
+
+            <div class="diagram-card">
+                <div class="mermaid">
+graph TD
+    subgraph "TLS Fuzzer Internals"
+        SC[scenarios.js: 26 categories] -->|actions| FC[FuzzerClient]
+        FC -->|net.Socket| TCP[Raw TCP Connection]
+
+        subgraph "Packet Construction (Pure JS)"
+            HS[handshake.js: ClientHello, ServerHello, Finished, CertificateVerify]
+            REC[record.js: wrapRecord, buildAlert, buildCCS]
+            CONST[constants.js: cipher suites, versions, alert codes]
+            X509[x509.js: Certificate field mutation]
+        end
+
+        FC --> HS
+        FC --> REC
+        FC --> CONST
+        FC --> X509
+
+        TCP -->|raw bytes| Target((Target))
+        Target -->|response bytes| FC
+        FC -->|parse TLS records| Verdict{PASS / FAIL}
+    end
+                </div>
+            </div>
+
+            <h3>Category Breakdown</h3>
+            <div class="payload-grid">
+                <div class="payload-card" style="border-top-color: var(--danger);">
+                    <h4>A–B: Handshake State Machine</h4>
+                    <p>Sends handshake messages in illegal order (e.g., Finished before ServerHello). Tests that the target's state machine rejects out-of-sequence transitions.</p>
+                </div>
+                <div class="payload-card" style="border-top-color: var(--warning);">
+                    <h4>C–D: Parameter & Alert Mutation</h4>
+                    <p>Mutates version fields, random bytes, session IDs. Injects alerts at wrong handshake phases to confuse the state machine.</p>
+                </div>
+                <div class="payload-card" style="border-top-color: var(--primary);">
+                    <h4>F–G: Record Layer & CCS</h4>
+                    <p>Fragments records across TCP segments, sends zero-length records, injects ChangeCipherSpec at illegal points.</p>
+                </div>
+                <div class="payload-card" style="border-top-color: var(--secondary);">
+                    <h4>H–R: Extension & Field Fuzzing</h4>
+                    <p>Malformed extensions, duplicate extensions, oversized SNI, ALPN confusion, 0-RTT abuse, ClientHello field mutations.</p>
+                </div>
+                <div class="payload-card" style="border-top-color: var(--accent);">
+                    <h4>I–J: CVE & PQC</h4>
+                    <p>Known vulnerability signatures (Heartbleed, POODLE, ROBOT). Post-Quantum key exchange bloat attacks using ML-KEM payloads.</p>
+                </div>
+                <div class="payload-card" style="border-top-color: var(--success);">
+                    <h4>W–Y: Certificate Fuzzing</h4>
+                    <p>X.509 field mutations (oversized CN, invalid SAN, expired certs, wrong key usage), certificate chain attacks, client cert abuse.</p>
+                </div>
+            </div>
+
+            <h3>TLS Action Execution Model</h3>
+            <div class="diagram-card">
+                <div class="mermaid">
+sequenceDiagram
+    participant E as FuzzerClient Engine
+    participant S as net.Socket (Raw TCP)
+    participant T as Target Server
+
+    E->>S: connect(host, port)
+    S->>T: TCP SYN → SYN-ACK → ACK
+
+    loop For Each Action in scenario.actions()
+        alt action.type === 'send'
+            E->>E: handshake.buildClientHello(opts)
+            E->>E: record.wrapRecord(0x16, data)
+            E->>S: socket.write(rawBytes)
+            S->>T: TLS Record (raw bytes on wire)
+        else action.type === 'recv'
+            T-->>S: Response bytes
+            S-->>E: 'data' event → accumulate buffer
+            E->>E: Parse TLS record headers
+        else action.type === 'slowDrip'
+            loop byte by byte
+                E->>S: socket.write(1 byte)
+                E->>E: await delay(interval)
+            end
+        else action.type === 'fragment'
+            E->>E: Split payload into N chunks
+            loop each chunk
+                E->>S: socket.write(chunk)
+                E->>E: await delay(fragmentDelay)
+            end
+        end
+    end
+
+    E->>E: Compare result vs scenario.expected
+    E-->>E: Verdict: PASS / FAIL / WARN
+                </div>
+            </div>
+        </section>
+
+        <section id="h2-deep-dive">
+            <h2>13. HTTP/2 Fuzzing Layer — Deep Dive</h2>
+            <p>HTTP/2 fuzzing targets the <strong>binary framing layer</strong> that sits on top of a valid TLS connection. The fuzzer first establishes a legitimate TLS+ALPN h2 session, then injects malformed HTTP/2 frames directly.</p>
+
+            <h3>Two-Phase Connection Model</h3>
+            <div class="diagram-card">
+                <div class="mermaid">
+graph TD
+    subgraph "Phase 1: Legitimate TLS Setup"
+        TLS1[Node.js tls.connect with ALPN: h2] --> Handshake[Full TLS 1.2/1.3 Handshake]
+        Handshake --> Secure[Encrypted TLS Socket]
+    end
+
+    subgraph "Phase 2: Frame-Level Fuzzing"
+        Secure --> Preface["Send Connection Preface (PRI * HTTP/2.0...)"]
+        Preface --> Settings[Send SETTINGS Frame]
+        Settings --> Fuzz{Inject Malformed Frames}
+
+        Fuzz --> Headers[Oversized HEADERS]
+        Fuzz --> Rapid[Rapid Reset: HEADERS + RST_STREAM × 1000]
+        Fuzz --> Cont[CONTINUATION flood without END_HEADERS]
+        Fuzz --> Data[DATA on stream 0]
+        Fuzz --> Priority[PRIORITY cycle]
+        Fuzz --> Window[Negative WINDOW_UPDATE]
+    end
+
+    subgraph "Frame Construction"
+        FG[frame-generator.js] --> |"buildFrame(type, flags, streamId, payload)"| Fuzz
+    end
+                </div>
+            </div>
+
+            <h3>HTTP/2 Scenario Categories</h3>
+            <table class="matrix-table">
+                <thead>
+                    <tr><th>Category</th><th>Focus</th><th>Severity</th><th>Key Scenarios</th></tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><span class="protocol-badge badge-h2">AA</span></td>
+                        <td>CVE & Rapid Attack</td>
+                        <td style="color: var(--danger);">Critical</td>
+                        <td>CVE-2023-44487 (Rapid Reset), CVE-2019-9514 (RST flood), Slowloris H2</td>
+                    </tr>
+                    <tr>
+                        <td><span class="protocol-badge badge-h2">AB</span></td>
+                        <td>Flood / Resource Exhaustion</td>
+                        <td style="color: var(--danger);">High</td>
+                        <td>SETTINGS flood, PING flood, Header bomb, CONTINUATION flood</td>
+                    </tr>
+                    <tr>
+                        <td><span class="protocol-badge badge-h2">AC</span></td>
+                        <td>Stream & Flow Control</td>
+                        <td style="color: var(--danger);">High</td>
+                        <td>Stream ID reuse, DATA exceeding window, dependency cycle</td>
+                    </tr>
+                    <tr>
+                        <td><span class="protocol-badge badge-h2">AD</span></td>
+                        <td>Frame Structure & Headers</td>
+                        <td style="color: var(--warning);">Medium</td>
+                        <td>Unknown frame types, HPACK bomb, pseudo-header violations</td>
+                    </tr>
+                    <tr>
+                        <td><span class="protocol-badge badge-h2">AE–AI</span></td>
+                        <td>Extended Attacks</td>
+                        <td>Mixed</td>
+                        <td>PUSH_PROMISE abuse, GOAWAY + late streams, empty frames</td>
+                    </tr>
+                    <tr>
+                        <td><span class="protocol-badge badge-h2">AM</span></td>
+                        <td>Functional Validation</td>
+                        <td style="color: var(--text-dim);">Baseline</td>
+                        <td>Well-behaved GET/POST, proper stream lifecycle, SETTINGS exchange</td>
+                    </tr>
+                </tbody>
+            </table>
+
+            <h3>Frame Generator Internals</h3>
+            <p>The <code>frame-generator.js</code> module builds raw HTTP/2 frames as <code>Buffer</code> objects. Each frame is a 9-byte header followed by a variable-length payload:</p>
+            <div class="diagram-card">
+                <div class="mermaid">
+graph LR
+    subgraph "HTTP/2 Frame (9-byte header + payload)"
+        L["Length (3 bytes)"] --> Ty["Type (1 byte): HEADERS=0x1, DATA=0x0, RST=0x3, SETTINGS=0x4..."]
+        Ty --> Fl["Flags (1 byte): END_STREAM=0x1, END_HEADERS=0x4..."]
+        Fl --> SI["Stream ID (4 bytes): odd=client, even=server, 0=connection"]
+        SI --> PL["Payload (variable): HPACK headers, data, error codes..."]
+    end
+                </div>
+            </div>
+        </section>
+
+        <section id="quic-deep-dive">
+            <h2>14. QUIC Fuzzing Layer — Deep Dive</h2>
+            <p>QUIC fuzzing is the most architecturally complex layer because QUIC encrypts from the very first packet. The fuzzer uses <strong>three distinct engines</strong> depending on the test depth required.</p>
+
+            <h3>Three-Engine Architecture</h3>
+            <div class="diagram-card">
+                <div class="mermaid">
+graph TD
+    subgraph "Engine 1: Stateless UDP (quic-packet.js)"
+        UDP[dgram.createSocket 'udp4'] --> PB[PacketBuilder]
+        PB --> |"RFC 9000 varint encoding"| InitPkt[QUIC Initial Packet]
+        PB --> |"Long header format"| ZeroPkt[0-RTT Packet]
+        PB --> |"AEAD encrypt"| HSPkt[Handshake Packet]
+        InitPkt --> Send1[UDP send → no state]
+        ZeroPkt --> Send1
+        HSPkt --> Send1
+    end
+
+    subgraph "Engine 2: OpenSSL Baseline (quic-baseline.js)"
+        OSSL["openssl s_client -quic"] --> |"Full handshake"| Pipe[stdin/stdout pipe]
+        Pipe --> |"Post-handshake inject"| Payload[Malware / Spyware payloads]
+    end
+
+    subgraph "Engine 3: Quiche Native (quiche-client.js)"
+        QC["@currentspace/http3"] --> |"Full state machine"| Conn[QUIC Connection]
+        Conn --> |"Deep frame fuzzing"| Frames[ACK / MAX_STREAMS / CONNECTION_CLOSE]
+        Conn --> |"HTTP/3 streams"| H3[H3 Request/Response]
+    end
+
+    Send1 --> Target((Target))
+    Payload --> Target
+    Frames --> Target
+                </div>
+            </div>
+
+            <h3>Engine Selection Logic</h3>
+            <p>The <code>QuicFuzzerClient</code> selects the appropriate engine per scenario based on the required test depth:</p>
+            <table class="matrix-table">
+                <thead>
+                    <tr><th>Engine</th><th>When Used</th><th>Capabilities</th><th>Limitations</th></tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><strong>Stateless UDP</strong></td>
+                        <td>Initial packet fuzzing (QA, QB, QF)</td>
+                        <td>Full control over every byte. No handshake needed. Fastest.</td>
+                        <td>Cannot reach post-handshake state. No encryption beyond Initial.</td>
+                    </tr>
+                    <tr>
+                        <td><strong>OpenSSL</strong></td>
+                        <td>Post-handshake app payload injection (QJ CVEs)</td>
+                        <td>Full TLS 1.3 handshake. Application-layer payload delivery.</td>
+                        <td>Requires OpenSSL 3.6+. Limited frame-level control. External process.</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Quiche</strong></td>
+                        <td>Deep stateful fuzzing (QC, QD, QE, QG–QK)</td>
+                        <td>Full QUIC state machine. Frame-level mutations. HTTP/3 streams.</td>
+                        <td>Requires optional <code>@currentspace/http3</code> dependency.</td>
+                    </tr>
+                </tbody>
+            </table>
+
+            <h3>QUIC Packet Builder Detail</h3>
+            <p>The <code>quic-packet.js</code> module implements RFC 9000 packet construction from scratch:</p>
+            <div class="diagram-card">
+                <div class="mermaid">
+graph LR
+    subgraph "QUIC Initial Packet (Long Header)"
+        HF["Header Form (1 bit): 1=Long"] --> FT["Fixed Bit (1 bit): 1"]
+        FT --> PT["Packet Type (2 bits): 0=Initial"]
+        PT --> VER["Version (4 bytes): 0x00000001"]
+        VER --> DCID["Dest CID Length + CID"]
+        DCID --> SCID["Source CID Length + CID"]
+        SCID --> TK["Token Length + Token (varint)"]
+        TK --> LEN["Payload Length (varint)"]
+        LEN --> PN["Packet Number (1-4 bytes)"]
+        PN --> FRAMES["CRYPTO frame: offset + ClientHello"]
+    end
+                </div>
+            </div>
+
+            <h3>QUIC Scenario Categories</h3>
+            <div class="payload-grid">
+                <div class="payload-card" style="border-top-color: #7c3aed;">
+                    <h4>QA–QB: Handshake & Transport</h4>
+                    <p>Version negotiation, connection ID manipulation, transport parameter mutations, ALPN confusion.</p>
+                </div>
+                <div class="payload-card" style="border-top-color: #7c3aed;">
+                    <h4>QC: Resource Exhaustion</h4>
+                    <p>Connection flood, Initial packet amplification, 0-RTT replay, stream exhaustion. Critical severity.</p>
+                </div>
+                <div class="payload-card" style="border-top-color: #7c3aed;">
+                    <h4>QD–QF: Flow Control & Frames</h4>
+                    <p>MAX_STREAMS violations, STREAM frame with invalid offsets, unknown frame types, padding attacks.</p>
+                </div>
+                <div class="payload-card" style="border-top-color: #7c3aed;">
+                    <h4>QG–QK: QUIC-TLS Integration</h4>
+                    <p>TLS handshake order within QUIC, extension fuzzing, alert injection, known CVEs, PQC evasion, certificate mutations.</p>
+                </div>
+            </div>
+        </section>
+
+        <section id="worker-pool-deep-dive">
+            <h2>15. Worker Thread Pool — Deep Dive</h2>
+            <p>The fuzzer uses Node.js <code>child_process.fork()</code> to create a pool of worker processes. This is <strong>not</strong> the <code>worker_threads</code> module &mdash; each worker is a full, isolated Node.js process with its own V8 heap, event loop, and TCP/UDP sockets.</p>
+
+            <h3>Why Processes, Not Threads?</h3>
+            <div class="logic-grid">
+                <div class="logic-box" style="border: 2px solid var(--success);">
+                    <h4 style="color: var(--success);">Process Isolation (chosen)</h4>
+                    <p><strong>Crash isolation:</strong> If a scenario causes a segfault in a native addon (raw-socket, quiche), only that worker dies. The primary and other workers continue.</p>
+                    <p><strong>Socket handles:</strong> TCP socket handles can be passed from primary to workers via IPC <code>sendHandle</code>. Not possible with worker_threads.</p>
+                    <p><strong>Clean state:</strong> Each worker starts fresh &mdash; no leaked TLS contexts, no stale connection state between scenarios.</p>
+                </div>
+                <div class="logic-box" style="border: 2px solid var(--text-dim);">
+                    <h4 style="color: var(--text-dim);">Worker Threads (not used)</h4>
+                    <p><strong>Shared memory:</strong> Would allow SharedArrayBuffer between workers, but the fuzzer doesn't need shared state &mdash; each scenario is independent.</p>
+                    <p><strong>Lower overhead:</strong> Threads are lighter, but the fuzzer's bottleneck is network I/O, not process creation. Fork cost is negligible.</p>
+                </div>
+            </div>
+
+            <h3>Worker Pool Lifecycle</h3>
+            <div class="diagram-card">
+                <div class="mermaid">
+sequenceDiagram
+    participant P as Primary Process
+    participant Q as Scenario Queue
+    participant W1 as Worker 1
+    participant W2 as Worker 2
+    participant WN as Worker N
+
+    Note over P: Fork N workers (default: CPU count)
+    P->>W1: fork('client.js')
+    P->>W2: fork('client.js')
+    P->>WN: fork('client.js')
+
+    par Worker startup
+        W1-->>P: {type: 'ready'}
+        W2-->>P: {type: 'ready'}
+        WN-->>P: {type: 'ready'}
+    end
+
+    P->>Q: Load all matching scenarios
+
+    loop Until queue empty
+        W1-->>P: {type: 'ready'}
+        P->>Q: dequeue()
+        P->>W1: {type: 'scenario', name: 'tls-reorder-1'}
+
+        W2-->>P: {type: 'ready'}
+        P->>Q: dequeue()
+        P->>W2: {type: 'scenario', name: 'h2-rapid-reset'}
+
+        Note over W1: UnifiedClient.runScenario()
+        W1-->>P: {type: 'result', result: {grade: 'PASS', ...}}
+
+        Note over W2: UnifiedClient.runScenario()
+        W2-->>P: {type: 'result', result: {grade: 'FAIL', ...}}
+    end
+
+    P->>W1: {type: 'done'}
+    P->>W2: {type: 'done'}
+    P->>WN: {type: 'done'}
+
+    Note over P: Aggregate results, compute overall grade, exit
+                </div>
+            </div>
+
+            <h3>Worker Pool Variants</h3>
+            <p>The same work-stealing pattern is used across all three interfaces, with slight variations in how workers are spawned and how results are collected:</p>
+            <table class="matrix-table">
+                <thead>
+                    <tr><th>Context</th><th>Primary</th><th>Worker</th><th>Communication</th><th>Concurrency</th></tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><strong>CLI</strong> (<code>client.js</code>)</td>
+                        <td>Same file (isPrimary check)</td>
+                        <td>Same file (isWorker path)</td>
+                        <td><code>process.send()</code> / <code>process.on('message')</code></td>
+                        <td>N workers (default: CPU count)</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Electron GUI</strong></td>
+                        <td><code>main.js</code></td>
+                        <td><code>lib/ui-worker.js</code></td>
+                        <td><code>child.send()</code> + IPC to renderer</td>
+                        <td>1 worker (sequential, real-time streaming)</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Agent</strong> (distributed)</td>
+                        <td><code>lib/agent.js</code></td>
+                        <td><code>lib/agent-worker.js</code></td>
+                        <td>HTTP + IPC hybrid</td>
+                        <td>1 worker per agent (horizontal scale via multiple agents)</td>
+                    </tr>
+                </tbody>
+            </table>
+
+            <h3>Work-Stealing Queue Pattern</h3>
+            <p>The primary maintains a FIFO queue of scenarios. Workers pull work when ready &mdash; there is no pre-assignment. This naturally load-balances across workers: fast scenarios (e.g., a rejected handshake that returns an alert in 10ms) free up the worker immediately for the next task, while slow scenarios (e.g., a timeout after 5 seconds) don't block other workers.</p>
+            <div class="diagram-card">
+                <div class="mermaid">
+graph LR
+    subgraph "Primary Process"
+        Queue["Scenario Queue (FIFO)"]
+        Results["Results Accumulator"]
+    end
+
+    subgraph "Worker Pool"
+        W1["Worker 1: IDLE → picks next"]
+        W2["Worker 2: BUSY (5s timeout)"]
+        W3["Worker 3: IDLE → picks next"]
+        W4["Worker 4: BUSY (TLS alert 10ms)"]
+    end
+
+    Queue -->|dequeue on ready| W1
+    Queue -->|dequeue on ready| W3
+    W4 -->|result + ready| Results
+    W1 -->|result + ready| Results
+                </div>
+            </div>
+
+            <h3>PCAP & Logging in Multi-Worker Mode</h3>
+            <p>Each worker writes to its own PCAP file (<code>output.pcap.worker-&lt;PID&gt;</code>) to avoid file contention. Log events are streamed from workers to the primary via IPC and rendered in order. In Electron mode, log events are forwarded to the renderer for real-time display.</p>
+        </section>
+
+        <section id="grading-system">
+            <h2>16. Results Grading System</h2>
+            <p>Every scenario produces a verdict, and all verdicts are aggregated into an overall security grade.</p>
+
+            <h3>Per-Scenario Grading</h3>
+            <table class="matrix-table">
+                <thead>
+                    <tr><th>Grade</th><th>Meaning</th><th>Example</th></tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td style="color: var(--success);"><strong>PASS</strong></td>
+                        <td>Behavior matched expected result</td>
+                        <td>Target sent <code>Alert(unexpected_message)</code> when receiving out-of-order Finished</td>
+                    </tr>
+                    <tr>
+                        <td style="color: var(--danger);"><strong>FAIL</strong></td>
+                        <td>Target accepted malicious input or crashed</td>
+                        <td>Target continued handshake after receiving illegal CCS</td>
+                    </tr>
+                    <tr>
+                        <td style="color: var(--warning);"><strong>WARN</strong></td>
+                        <td>Target stricter than expected (minor issue)</td>
+                        <td>Target dropped a well-behaved connection (false positive)</td>
+                    </tr>
+                    <tr>
+                        <td style="color: var(--text-dim);"><strong>INFO</strong></td>
+                        <td>No expected value defined; informational</td>
+                        <td>Scanning scenario reporting supported cipher suites</td>
+                    </tr>
+                </tbody>
+            </table>
+
+            <h3>Overall Grade Scale</h3>
+            <div class="diagram-card">
+                <div class="mermaid">
+graph LR
+    A["A: All pass, no crashes"] --> B["B: No critical/high failures"]
+    B --> C["C: No critical, some high/medium"]
+    C --> D["D: High-severity failures"]
+    D --> F["F: Critical CVE accepted or host crash"]
+
+    style A fill:#10b981,color:white
+    style B fill:#22d3ee,color:black
+    style C fill:#fbbf24,color:black
+    style D fill:#f97316,color:white
+    style F fill:#ef4444,color:white
+                </div>
+            </div>
+        </section>
+
         <div class="footer">
-            Protocol Fuzzer Documentation &bull; Generated March 2026 &bull; Architecture v2.6
+            Protocol Fuzzer Documentation &bull; Generated March 2026 &bull; Architecture v3.0
         </div>
     </div>
 </body>
