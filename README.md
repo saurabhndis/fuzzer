@@ -97,19 +97,24 @@ npm start
 
 **Post-Handshake Fuzzing (Application Layer):** The fuzzer utilizes OpenSSL 3.6+ (`s_client`) to handle the complex cryptographic state machine of the TLS 1.3 handshake over QUIC. Once the 1-RTT stream is established, the fuzzer can inject malformed HTTP/3 application data, exhaust idle timeouts, or flood streams.
 
-#### Extending with Deep Protocol Fuzzing (quiche)
+#### Deep Protocol Fuzzing (quiche integration)
 
-If you need to fuzz the **QUIC protocol itself** *after* the handshake (e.g., mutating `MAX_STREAMS`, `ACK` blocks, or `CONNECTION_CLOSE` frames), you cannot use OpenSSL, as it does not allow manual frame construction. You also do not need to build a C/Rust compiler toolchain on your testing machines. 
+If you need to fuzz the **QUIC protocol itself** *after* the handshake (e.g., mutating `MAX_STREAMS`, `ACK` blocks, or `CONNECTION_CLOSE` frames), or if you want a fully compliant, self-contained state machine without relying on external binaries like OpenSSL, you can use **quiche** (Cloudflare's native QUIC library).
 
-Instead, you can integrate a prebuilt native library like Cloudflare's **quiche**:
+By default, the fuzzer uses its custom, stateless packet builder for `Initial` packet fuzzing and falls back to `openssl s_client -quic` for stateful tests. However, the fuzzer is designed to detect and utilize `quiche` if it is installed.
 
-1. **Install a prebuilt N-API wrapper:**
-   ```bash
-   # Example: Install a library that provides prebuilt .node binaries for all OS/Arch
-   npm install @fails-components/webtransport-transport-http3-quiche
-   ```
-2. **Hook the state machine:** Route the raw UDP `Buffer` from Node's `dgram` socket into the native library's state machine. 
-3. **Mutate prior to encryption:** To fuzz frames, you must patch the JavaScript wrapper or use an N-API hook to intercept the serialized QUIC frames *just before* the native library applies AES-GCM payload encryption and sends them out the UDP socket.
+**How to install and enable `quiche`:**
+
+You do not need a C/Rust compiler to use quiche. You can install a prebuilt N-API wrapper that downloads the correct binary for your OS/Architecture:
+
+```bash
+# Install the prebuilt quiche wrapper
+npm install @currentspace/http3
+```
+
+When this package is present in `node_modules`, the fuzzer will automatically switch modes:
+1. **All QUIC tests** (fuzzing and well-behaved counterparts) will route through the `quiche` state machine instead of the stateless UDP builder.
+2. It allows for deep protocol fuzzing by exposing hooks to mutate serialized frames just before AES-GCM encryption is applied.
 
 ### Raw TCP (Categories RA-RH)
 
