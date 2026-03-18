@@ -16,6 +16,7 @@
   const selectAllBtn = document.getElementById('selectAllBtn');
   const selectNoneBtn = document.getElementById('selectNoneBtn');
   const runBtn = document.getElementById('runBtn');
+  const rerunFailedBtn = document.getElementById('rerunFailedBtn');
   const stopBtn = document.getElementById('stopBtn');
   const loopCountInput = document.getElementById('loopCountInput');
   const pcapBtn = document.getElementById('pcapBtn');
@@ -930,6 +931,33 @@
     }
   });
 
+  // Rerun failed tests
+  rerunFailedBtn.addEventListener('click', () => {
+    if (running) return;
+
+    const failedScenarios = results.filter(r => 
+      r.verdict === 'UNEXPECTED' || 
+      r.status === 'ERROR' || 
+      r.hostDown
+    ).map(r => r.scenario);
+
+    if (failedScenarios.length === 0) return;
+
+    // Uncheck all
+    setAllCheckboxes(false);
+
+    // Check failed ones
+    const checkboxes = scenariosList.querySelectorAll('input[type="checkbox"]:not(:disabled)');
+    checkboxes.forEach(cb => {
+      if (failedScenarios.includes(cb.value)) {
+        cb.checked = true;
+      }
+    });
+
+    // Trigger run
+    runBtn.click();
+  });
+
   // Distributed run
   async function runDistributed() {
     if (!agentsConnected) {
@@ -1414,12 +1442,28 @@
     const gradeStr = lastReport ? ` [Grade: ${lastReport.grade}]` : '';
     statusBadge.textContent = hasDown ? 'DONE (HOST DOWN)' : errors > 0 ? 'DONE (ERRORS)' : `DONE${gradeStr}`;
     statusBadge.className = hasDown ? 'header-status error' : 'header-status done';
+
+    const failedScenarios = results.filter(r => 
+      r.verdict === 'UNEXPECTED' || 
+      r.status === 'ERROR' || 
+      r.hostDown
+    ).map(r => r.scenario);
+    
+    const uniqueFailed = [...new Set(failedScenarios)];
+    if (uniqueFailed.length > 0) {
+      rerunFailedBtn.disabled = false;
+      rerunFailedBtn.title = `Rerun ${uniqueFailed.length} failed test(s)`;
+    } else {
+      rerunFailedBtn.disabled = true;
+      rerunFailedBtn.title = 'No failed tests to rerun';
+    }
   }
 
   // UI state management
   function setRunning(state) {
     running = state;
     runBtn.disabled = state;
+    if (state) rerunFailedBtn.disabled = true;
     stopBtn.disabled = !state;
     modeSelect.disabled = state || distributedMode;
     hostInput.disabled = state;
@@ -1526,6 +1570,8 @@
     resultsEmpty.style.display = 'block';
     resultsTable.style.display = 'table';
     exportJsonBtn.disabled = true;
+    rerunFailedBtn.disabled = true;
+    rerunFailedBtn.title = 'Rerun failed tests';
     summaryBar.style.display = 'none';
     statusBadge.textContent = 'IDLE';
     statusBadge.className = 'header-status';

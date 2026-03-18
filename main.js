@@ -428,7 +428,14 @@ ipcMain.handle('run-fuzzer', async (event, opts) => {
           while (waitingForSocket.length > 0 && pendingSockets.length > 0) {
             const { worker, scenarioName } = waitingForSocket.shift();
             const sock = pendingSockets.shift();
-            worker.send({ cmd: 'run-on-socket', scenarioName, protocol }, sock);
+            try {
+              worker.send({ cmd: 'run-on-socket', scenarioName, protocol }, sock);
+            } catch (e) {
+              // Worker may have crashed — destroy socket and report error
+              sock.destroy();
+              results.push({ scenario: scenarioName, status: 'ERROR', response: `Worker IPC failed: ${e.message}` });
+              send('fuzzer-result', results[results.length - 1]);
+            }
           }
         };
 

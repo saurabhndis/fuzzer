@@ -238,7 +238,13 @@ async function primaryMain(args) {
     while (waitingForSocket.length > 0 && pendingSockets.length > 0) {
       const { worker, scenarioName } = waitingForSocket.shift();
       const socket = pendingSockets.shift();
-      worker.send({ type: 'socket', scenarioName }, socket);
+      try {
+        worker.send({ type: 'socket', scenarioName }, socket);
+      } catch (e) {
+        socket.destroy();
+        results.push({ scenario: scenarioName, status: 'ERROR', response: `Worker IPC failed: ${e.message}` });
+        console.log(`  \x1b[31m✗\x1b[0m ${scenarioName} — ERROR — Worker IPC failed`);
+      }
     }
   }
 
