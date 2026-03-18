@@ -19,6 +19,7 @@
             --accent: #f472b6;
             --warning: #fbbf24;
             --danger: #ef4444;
+            --success: #10b981;
         }
         body {
             font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
@@ -102,6 +103,20 @@
         .payload-card h4 { margin: 0 0 10px 0; color: var(--warning); }
         .payload-card p { font-size: 0.9rem; margin: 0; }
 
+        .logic-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            margin: 20px 0;
+        }
+        .logic-box {
+            padding: 20px;
+            border-radius: 12px;
+            background: var(--surface);
+        }
+        .logic-box.well-behaved { border: 2px solid var(--success); }
+        .logic-box.fuzzed { border: 2px solid var(--danger); }
+
         .footer {
             margin-top: 80px;
             text-align: center;
@@ -181,8 +196,101 @@ graph TD
             </div>
         </section>
 
+        <section id="behavior-logic">
+            <h2>3. Well-Behaved vs. Fuzzed Scenarios</h2>
+            <p>The fuzzer operates by running two types of tests for every protocol. This dual-path approach ensures that "AS EXPECTED" results are validated against true protocol compliance.</p>
+            
+            <div class="logic-grid">
+                <div class="logic-box well-behaved">
+                    <h4 style="color: var(--success);">Well-Behaved (QA/Baseline)</h4>
+                    <p>Uses standard libraries (OpenSSL, Node.js <code>tls</code>/<code>http2</code>) to establish a perfect, RFC-compliant connection. Validates that the target is reachable and functioning under normal conditions.</p>
+                </div>
+                <div class="logic-box fuzzed">
+                    <h4 style="color: var(--danger);">Fuzzed (Protocol Attack)</h4>
+                    <p>Uses custom byte-level builders to craft illegal or edge-case packets. Manually manipulates handshake states, record lengths, and frame types to probe the target's error handling.</p>
+                </div>
+            </div>
+        </section>
+
+        <section id="tls-flow">
+            <h2>4. TLS Fuzzing Flow (Handshake Reordering)</h2>
+            <p>TLS fuzzing focuses on the record layer and handshake state machine. One common vector is sending valid handshake messages in an invalid order or fragmented across records.</p>
+            
+            <div class="diagram-card">
+                <div class="mermaid">
+sequenceDiagram
+    participant C as Fuzzer Client
+    participant T as Target Server
+    
+    Note over C: Action: Handshake reordering
+    C->>T: ClientHello (Record 1)
+    C->>T: Finished (Record 2 - ILLEGAL ORDER)
+    
+    alt Correct Reject
+        T-->>C: Alert (unexpected_message)
+        Note over C,T: Result: DROPPED [AS EXPECTED]
+    else Processing Error
+        T-->>C: Timeout / Crash
+        Note over C,T: Result: ERROR [FAIL]
+    end
+                </div>
+            </div>
+        </section>
+
+        <section id="h2-flow">
+            <h2>5. HTTP/2 Fuzzing Flow</h2>
+            <p>HTTP/2 testing focuses on the multiplexing layer. It ensures the target correctly handles illegal frame transitions and resource exhaustion attempts.</p>
+            
+            <div class="diagram-card">
+                <div class="mermaid">
+sequenceDiagram
+    participant C as Fuzzer Client
+    participant T as Target H2 Server
+    
+    Note over C,T: TCP + TLS Handshake (ALPN: h2)
+    C->>T: Connection Preface (PRI * HTTP/2.0...)
+    C->>T: SETTINGS Frame
+    T-->>C: SETTINGS ACK
+    
+    rect rgb(45, 55, 75)
+    Note right of C: Scenario: Rapid Reset
+    loop 1000 times
+        C->>T: HEADERS (New Stream)
+        C->>T: RST_STREAM (Cancel)
+    end
+    end
+    
+    T-->>C: GOAWAY / Connection Drop
+    Note over C,T: Validation: Target should rate-limit resets
+                </div>
+            </div>
+        </section>
+
+        <section id="quic-flow">
+            <h2>6. QUIC Fuzzing: Stateless vs Stateful</h2>
+            <p>QUIC testing is split into stateless packet injection (probing the UDP entry point) and stateful application testing (probing the encrypted HTTP/3 stream).</p>
+            
+            <div class="diagram-card">
+                <div class="mermaid">
+graph TD
+    subgraph "Stateless (UDP dgram)"
+        S1[Manual Initial Packet] -->|No CID tracking| S2[Fuzz Transport Params]
+        S2 -->|Payload| S3[Send over UDP]
+    end
+
+    subgraph "Stateful (OpenSSL Wrapper)"
+        O1[OpenSSL s_client] -->|Full Handshake| O2[1-RTT Encrypted Pipe]
+        O2 -->|Fuzz Payload| O3[Inject Malware/Spyware]
+    end
+
+    S3 --> Target
+    O3 --> Target
+                </div>
+            </div>
+        </section>
+
         <section id="protocol-matrix">
-            <h2>3. Protocol Testing Coverage</h2>
+            <h2>7. Protocol Testing Coverage</h2>
             <p>The fuzzer targets different layers of the networking stack, from low-level TCP segments to encrypted application streams.</p>
             
             <table class="matrix-table">
@@ -219,7 +327,7 @@ graph TD
         </section>
 
         <section id="payloads">
-            <h2>4. Application Layer Payloads</h2>
+            <h2>8. Application Layer Payloads</h2>
             <p>Beyond protocol headers, the tool tests the security engine's ability to detect and block malicious content nested within the established encrypted streams.</p>
             
             <div class="payload-grid">
@@ -242,37 +350,8 @@ graph TD
             </div>
         </section>
 
-        <section id="h2-flow">
-            <h2>5. HTTP/2 Fuzzing Flow</h2>
-            <p>HTTP/2 testing focuses on the multiplexing layer. It ensures the target correctly handles illegal frame transitions and resource exhaustion attempts.</p>
-            
-            <div class="diagram-card">
-                <div class="mermaid">
-sequenceDiagram
-    participant C as Fuzzer Client
-    participant T as Target H2 Server
-    
-    Note over C,T: TCP + TLS Handshake (ALPN: h2)
-    C->>T: Connection Preface (PRI * HTTP/2.0...)
-    C->>T: SETTINGS Frame
-    T-->>C: SETTINGS ACK
-    
-    rect rgb(45, 55, 75)
-    Note right of C: Scenario: Rapid Reset
-    loop 1000 times
-        C->>T: HEADERS (New Stream)
-        C->>T: RST_STREAM (Cancel)
-    end
-    end
-    
-    T-->>C: GOAWAY / Connection Drop
-    Note over C,T: Validation: Target should rate-limit resets
-                </div>
-            </div>
-        </section>
-
         <div class="footer">
-            Protocol Fuzzer Documentation &bull; Generated March 2026 &bull; Architecture v2.5
+            Protocol Fuzzer Documentation &bull; Generated March 2026 &bull; Architecture v2.6
         </div>
     </div>
 </body>
