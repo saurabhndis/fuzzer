@@ -783,7 +783,7 @@ ipcMain.handle('distributed-run', async () => {
         send('distributed-agent-done', { role });
         break;
       case 'status':
-        send('distributed-agent-status', { role, status: event.status });
+        send('distributed-agent-status', { role, ...event });
         break;
       case 'error':
         send('fuzzer-packet', { type: 'error', message: event.message, agentRole: role });

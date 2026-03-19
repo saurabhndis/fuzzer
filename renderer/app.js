@@ -94,6 +94,8 @@
   let lastReport = null;
   let localMode = false;
   let distributedMode = false;
+  let clientActiveWorkers = 0;
+  let serverActiveWorkers = 0;
 
   // ── Scenario hover tooltip ──────────────────────────────────────────
   const scenarioTooltip = document.createElement('div');
@@ -306,12 +308,25 @@
     addLogEntry('info', 'Disconnected from agents');
   }
 
-  function setAgentStatus(role, status) {
+  function setAgentStatus(role, status, workerCount) {
     const dot = role === 'client' ? clientStatusDot : serverStatusDot;
     const text = role === 'client' ? clientStatusText : serverStatusText;
     dot.className = `agent-status-dot agent-${status}`;
-    text.textContent = status.toUpperCase();
+    if (workerCount !== undefined) {
+      if (role === 'client') clientActiveWorkers = workerCount;
+      else serverActiveWorkers = workerCount;
+      text.textContent = workerCount > 0 ? `${status.toUpperCase()} (${workerCount}W)` : status.toUpperCase();
+      updateButtonStates();
+    } else {
+      text.textContent = status.toUpperCase();
+    }
   }
+
+  window.fuzzer.onAgentStatus((event) => {
+    if (event.role === 'client') clientActiveWorkers = event.activeWorkerCount || 0;
+    else if (event.role === 'server') serverActiveWorkers = event.activeWorkerCount || 0;
+    setAgentStatus(event.role, event.status, event.activeWorkerCount);
+  });
 
   function startStatusPolling() {
     stopStatusPolling();
@@ -319,11 +334,11 @@
       if (!agentsConnected) return;
       try {
         const cStatus = await window.fuzzer.distributedStatus('client');
-        if (cStatus && !cStatus.error) setAgentStatus('client', cStatus.status);
+        if (cStatus && !cStatus.error) setAgentStatus('client', cStatus.status, cStatus.activeWorkerCount);
         const sStatus = await window.fuzzer.distributedStatus('server');
-        if (sStatus && !sStatus.error) setAgentStatus('server', sStatus.status);
+        if (sStatus && !sStatus.error) setAgentStatus('server', sStatus.status, sStatus.activeWorkerCount);
       } catch (_) {}
-    }, 3000);
+    }, 2000);
   }
 
   function stopStatusPolling() {
@@ -1461,21 +1476,26 @@
     }
   }
 
+  function updateButtonStates() {
+    const isBusy = running || clientActiveWorkers > 0 || serverActiveWorkers > 0;
+    runBtn.disabled = isBusy;
+    if (isBusy) rerunFailedBtn.disabled = true;
+
+    if (distributedMode) {
+      connectBtn.disabled = running || agentsConnected;
+      disconnectBtn.disabled = running || !agentsConnected;
+    }
+  }
+
   // UI state management
   function setRunning(state) {
     running = state;
-    runBtn.disabled = state;
-    if (state) rerunFailedBtn.disabled = true;
+    updateButtonStates();
     stopBtn.disabled = !state;
     modeSelect.disabled = state || distributedMode;
     hostInput.disabled = state;
     portInput.disabled = state;
     distributedCheck.disabled = state;
-
-    if (distributedMode) {
-      connectBtn.disabled = state || agentsConnected;
-      disconnectBtn.disabled = state || !agentsConnected;
-    }
 
     if (state) {
       statusBadge.textContent = distributedMode ? 'DISTRIBUTED RUN' : 'RUNNING';

@@ -302,18 +302,12 @@ async function main() {
     const fp = certInfo.fingerprint.match(/.{2}/g).join(':').toUpperCase();
     logger.info(`Server certificate: CN=${hostname} | SHA256=${fp}`);
 
-    // Use UnifiedServer for raw-tcp, FuzzerServer for plain TLS
-    const server = (useRawTcp || protocol === 'h2' || protocol === 'quic')
-      ? new UnifiedServer({
-          port, hostname, timeout, delay, logger, pcapFile,
-          cert: certInfo.certDER,
-          certInfo,
-        })
-      : new FuzzerServer({
-          port, hostname, timeout, delay, logger, pcapFile,
-          cert: certInfo.certDER,
-          certInfo,
-        });
+    // UnifiedServer handles all protocols and fallback logic
+    const server = new UnifiedServer({
+      port, hostname, timeout, delay, logger, pcapFile,
+      cert: certInfo.certDER,
+      certInfo,
+    });
 
     const originalRunScenario = server.runScenario.bind(server);
     server.runScenario = async (scenario) => {
