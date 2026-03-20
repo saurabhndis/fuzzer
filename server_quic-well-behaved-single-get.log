@@ -1,0 +1,18 @@
+[32m20:55:18.499 ℹ Server certificate: CN=localhost | SHA256=E2:25:EB:D7:3F:C5:BE:F5:AF:19:AB:32:BB:D1:EA:69:53:1C:4F:80:DF:90:DB:27:FE:6D:9B:B9:70:28:8F:78[0m
+[32m20:55:18.515 ℹ HTTP/3 server listening on 0.0.0.0:4446 (UDP, quiche)[0m
+
+[1m[35m━━━ Scenario: srv-quic-well-behaved-echo ━━━[0m
+[90m    Server: Well-behaved HTTP/3 echo server (functional validation) (using quiche Native Engine)[0m
+[32m20:55:18.515 ℹ Waiting for QUIC client connection on port 4446...[0m
+[32m20:55:21.519 ℹ HTTP/3 session established (client: 127.0.0.1:59392)[0m
+[1m[32m  Result: PASSED[0m [90m(Handled 1 stream(s) (client: 127.0.0.1:59392))[0m [32m[AS EXPECTED][0m [32m[PASS][0m
+
+[1m[37m━━━ Summary ━━━[0m
+
+  Total: 1  [31mDropped: 0[0m  [32mPassed: 1[0m  [33mErrors: 0[0m  [90mTimeout: 0[0m
+  [32mAs Expected: 1[0m  [90mUnexpected: 0[0m
+
+  Scenario                                 Description                                        Status     Finding  Verdict        Response
+  ──────────────────────────────────────── ────────────────────────────────────────────────── ────────── ──────── ────────────── ──────────────────────────────
+  srv-quic-well-behaved-echo               [90mServer: Well-behaved HTTP/3 echo server (functio  [0m [32mPASSED    [0m [32mPASS    [0m [32mAS EXPECTED   [0m Handled 1 stream(s) (client: 127.0.0.1:59392)
+

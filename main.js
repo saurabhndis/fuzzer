@@ -231,15 +231,15 @@ ipcMain.handle('run-fuzzer', async (event, opts) => {
         for (let loop = 0; loop < loopCount; loop++) {
           for (const s of scenarios) queue.push(s);
         }
-        
+
         const numWorkers = Math.min(workers, queue.length);
         let activeWorkers = 0;
-        
+
         await new Promise((resolve) => {
           for (let i = 0; i < numWorkers; i++) {
             const worker = fork(path.join(__dirname, 'lib', 'ui-worker.js'));
             activeWorkers++;
-            
+
             worker.on('message', (msg) => {
               if (msg.type === 'ready') {
                 if (queue.length > 0) {
@@ -261,12 +261,12 @@ ipcMain.handle('run-fuzzer', async (event, opts) => {
                 send('fuzzer-packet', msg.data);
               }
             });
-            
+
             worker.on('exit', () => {
               activeWorkers--;
               if (activeWorkers === 0) resolve();
             });
-            
+
             worker.send({
               cmd: 'init-client', host: clientHost, port: clientPort, timeout, delay, verbose, pcapFile, dut
             });
@@ -346,6 +346,7 @@ ipcMain.handle('run-fuzzer', async (event, opts) => {
         const connect = async () => {
           if (connected) return;
           connected = true;
+          clearTimeout(safetyTimer);
           activeServer._onListening = null;
           try {
             if (proto === 'quic') await client.connectQuic();
@@ -356,7 +357,7 @@ ipcMain.handle('run-fuzzer', async (event, opts) => {
         };
         activeServer._onListening = connect;
         // Safety: if server errors before listening, don't hang forever
-        setTimeout(connect, 35000);
+        const safetyTimer = setTimeout(connect, 35000);
       });
       return promise;
     }
@@ -419,21 +420,33 @@ ipcMain.handle('run-fuzzer', async (event, opts) => {
         // Workers assigned a scenario wait for a socket; incoming connections
         // are paired with waiting workers. This allows true parallelism when
         // multiple clients connect simultaneously.
-        const waitingForSocket = [];  // { worker, scenarioName }
+        const waitingForSocket = [];  // { worker, scenarioName, timer }
         const pendingSockets = [];
         let activeWorkers = 0;
         let onAllResults = null;
+        const SOCKET_WAIT_TIMEOUT = 90000; // 90s — must exceed scenario safety timeout
+
+        // Prune dead/destroyed sockets from the pending queue
+        const pruneDeadSockets = () => {
+          for (let i = pendingSockets.length - 1; i >= 0; i--) {
+            if (pendingSockets[i].destroyed) {
+              pendingSockets.splice(i, 1);
+            }
+          }
+        };
 
         const tryPairSocketToWorker = () => {
+          pruneDeadSockets();
           while (waitingForSocket.length > 0 && pendingSockets.length > 0) {
-            const { worker, scenarioName } = waitingForSocket.shift();
+            const entry = waitingForSocket.shift();
+            clearTimeout(entry.timer);
             const sock = pendingSockets.shift();
             try {
-              worker.send({ cmd: 'run-on-socket', scenarioName, protocol }, sock);
+              entry.worker.send({ cmd: 'run-on-socket', scenarioName: entry.scenarioName, protocol }, sock);
             } catch (e) {
               // Worker may have crashed — destroy socket and report error
               sock.destroy();
-              results.push({ scenario: scenarioName, status: 'ERROR', response: `Worker IPC failed: ${e.message}` });
+              results.push({ scenario: entry.scenarioName, status: 'ERROR', response: `Worker IPC failed: ${e.message}` });
               send('fuzzer-result', results[results.length - 1]);
             }
           }
@@ -441,6 +454,15 @@ ipcMain.handle('run-fuzzer', async (event, opts) => {
 
         tcpServer.on('connection', (sock) => {
           pendingSockets.push(sock);
+          // Auto-destroy pending sockets that sit unmatched for too long
+          const sockTimeout = setTimeout(() => {
+            const idx = pendingSockets.indexOf(sock);
+            if (idx !== -1) {
+              pendingSockets.splice(idx, 1);
+              if (!sock.destroyed) sock.destroy();
+            }
+          }, SOCKET_WAIT_TIMEOUT);
+          sock.on('close', () => clearTimeout(sockTimeout));
           tryPairSocketToWorker();
         });
 
@@ -455,7 +477,27 @@ ipcMain.handle('run-fuzzer', async (event, opts) => {
                 if (queue.length > 0) {
                   const s = queue.shift();
                   send('fuzzer-progress', { scenario: s.name, total: totalServerWithLoops, current: results.length + 1 });
-                  waitingForSocket.push({ worker, scenarioName: s.name });
+
+                  // Timeout: if no client connects within SOCKET_WAIT_TIMEOUT, emit TIMEOUT and recycle the worker
+                  const entry = { worker, scenarioName: s.name, timer: null };
+                  entry.timer = setTimeout(() => {
+                    const idx = waitingForSocket.indexOf(entry);
+                    if (idx !== -1) {
+                      waitingForSocket.splice(idx, 1);
+                      send('fuzzer-packet', { type: 'info', message: `Socket-wait timeout for "${s.name}" — no client connected within ${SOCKET_WAIT_TIMEOUT / 1000}s` });
+                      results.push({ scenario: s.name, status: 'TIMEOUT', response: `No client connection within ${SOCKET_WAIT_TIMEOUT / 1000}s` });
+                      send('fuzzer-result', results[results.length - 1]);
+                      if (results.length >= totalServerWithLoops && onAllResults) onAllResults();
+                      // Re-feed the worker so it picks up the next scenario
+                      else if (queue.length > 0) {
+                        worker.send({ cmd: 'noop' }); // triggers ready cycle
+                      } else {
+                        // No more work — abort the idle worker so it exits
+                        worker.send({ cmd: 'abort' });
+                      }
+                    }
+                  }, SOCKET_WAIT_TIMEOUT);
+                  waitingForSocket.push(entry);
                   tryPairSocketToWorker();
 
                   // In local mode, spawn a well-behaved client to connect
@@ -494,6 +536,12 @@ ipcMain.handle('run-fuzzer', async (event, opts) => {
 
           onAllResults = resolve;
         });
+
+        // Clean up: cancel any pending socket-wait timers and destroy unmatched sockets
+        for (const entry of waitingForSocket) clearTimeout(entry.timer);
+        waitingForSocket.length = 0;
+        for (const sock of pendingSockets) { if (!sock.destroyed) sock.destroy(); }
+        pendingSockets.length = 0;
 
         tcpServer.close();
       } finally {
@@ -656,7 +704,20 @@ ipcMain.handle('run-fuzzer', async (event, opts) => {
         }
         for (const scenario of scenarios) {
           if (activeServer.aborted) break;
-          send('fuzzer-progress', { scenario: scenario.name, total: totalTlsWithLoops, current: results.length + 1 });
+          const idx = results.length + 1;
+          send('fuzzer-progress', { scenario: scenario.name, total: totalTlsWithLoops, current: idx });
+          // Periodic resource diagnostics to detect leaks approaching hang threshold
+          if (idx % 200 === 0) {
+            try {
+              const fs = require('fs');
+              const fdCount = fs.readdirSync('/dev/fd').length;
+              send('fuzzer-packet', { type: 'info', message: `[diag] Test #${idx}: open FDs=${fdCount}, activeSockets=${activeServer.activeSockets.size}, heapMB=${Math.round(process.memoryUsage().heapUsed / 1048576)}` });
+            } catch (_) {
+              send('fuzzer-packet', { type: 'info', message: `[diag] Test #${idx}: activeSockets=${activeServer.activeSockets.size}, heapMB=${Math.round(process.memoryUsage().heapUsed / 1048576)}` });
+            }
+          }
+          // Clean up between scenarios to prevent resource accumulation
+          if (activeServer._cleanupBetweenScenarios) activeServer._cleanupBetweenScenarios();
           const clientPromise = spawnLocalClient('tls');
           const result = await activeServer.runScenario(scenario);
           if (clientPromise) { const c = await clientPromise; c.stop(); }

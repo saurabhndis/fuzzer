@@ -49,11 +49,7 @@ class UnifiedServer {
     this.timeout = opts.timeout || 10000;
     this.delay = opts.delay || 100;
     this.logger = opts.logger || new Logger(opts);
-    let finalPcap = opts.pcapFile;
-    if (finalPcap && !finalPcap.includes('.server.')) {
-      finalPcap = finalPcap.replace(/\.pcap$/i, '') + '.server.pcap';
-    }
-    this.pcap = finalPcap ? new PcapWriter(finalPcap, {
+    this.pcap = opts.pcapFile ? new PcapWriter(opts.pcapFile, {
       role: 'server',
       serverPort: opts.port || 4433,
       clientPort: 49152 + Math.floor(Math.random() * 16000),
@@ -63,7 +59,6 @@ class UnifiedServer {
 
     // Active server instances
     this.tlsServer = null;   // net.Server (created per TLS scenario)
-    this.nodeTlsServer = null; // tls.Server (created per Node TLS scenario)
     this.h2Server = null;    // http2.Server (persistent, shared across H2 scenarios)
     this.quicServer = null;  // QuicFuzzerServer (persistent, shared across QUIC scenarios)
     this._h2StopResolve = null;
@@ -100,7 +95,6 @@ class UnifiedServer {
   abort() {
     this.aborted = true;
     if (this.tlsServer) { try { this.tlsServer.close(); } catch (_) {} }
-    if (this.nodeTlsServer) { try { this.nodeTlsServer.close(); } catch (_) {} }
     if (this.h2Server) { try { this.h2Server.close(); } catch (_) {} }
     if (this.quicServer) { this.quicServer.abort(); this.quicServer = null; }
     if (this._h2StopResolve) { this._h2StopResolve(); this._h2StopResolve = null; }
@@ -114,7 +108,7 @@ class UnifiedServer {
   }
 
   close() {
-    this.abort();
+    if (this.pcap) { this.pcap.close(); this.pcap = null; }
   }
 
   getCertInfo() {
@@ -133,54 +127,18 @@ class UnifiedServer {
       return { scenario: scenario.name, description: scenario.description, status: 'SKIPPED', response: 'Client-side scenario cannot run in server mode' };
     }
 
-    // Safety timeout: no scenario should ever take more than 90 seconds
-    return new Promise(async (resolve) => {
-      let resolved = false;
-      const timer = setTimeout(() => {
-        if (resolved) return;
-        resolved = true;
-        this.logger.error(`Scenario ${scenario.name} forced timeout after 90s`);
-        this.abort(); // Attempt to break the hang
-        this.aborted = false; // Reset so next scenario can run
-        resolve({
-          scenario: scenario.name,
-          description: scenario.description,
-          status: 'TIMEOUT',
-          response: 'Forced timeout (90s safety limit)',
-        });
-      }, 90000);
-
-      const finish = (result) => {
-        if (resolved) return;
-        resolved = true;
-        clearTimeout(timer);
-        resolve(result);
-      };
-
-      try {
-        let result;
-        if (isTcpScenario(scenario)) result = await this._runRawTCPScenario(scenario);
-        else if (isQuicScenario(scenario)) result = await this._runQuicScenario(scenario);
-        else if (scenario.useNodeTLS) result = await this._runNodeTLSServer(scenario);
-        else result = isH2Scenario(scenario) ? await this._runH2Scenario(scenario) : await this._runTLSScenario(scenario);
-        finish(result);
-      } catch (e) {
-        finish({
-          scenario: scenario.name,
-          description: scenario.description,
-          status: 'ERROR',
-          response: e.message,
-        });
-      }
-    });
+    if (isTcpScenario(scenario)) return this._runRawTCPScenario(scenario);
+    if (isQuicScenario(scenario)) return this._runQuicScenario(scenario);
+    if (scenario.useNodeTLS) return this._runNodeTLSServer(scenario);
+    return isH2Scenario(scenario)
+      ? this._runH2Scenario(scenario)
+      : this._runTLSScenario(scenario);
   }
 
   async runScenarios(scenarios) {
     const results = [];
     for (const scenario of scenarios) {
       if (this.aborted) break;
-      // Ensure no leftover sockets/servers from previous scenario leak FDs
-      this._cleanupBetweenScenarios();
       const result = await this.runScenario(scenario);
       results.push(result);
       await this._sleep(500);
@@ -188,17 +146,6 @@ class UnifiedServer {
     const report = computeOverallGrade(results);
     this.logger.summary(results);
     return { results, report };
-  }
-
-  _cleanupBetweenScenarios() {
-    // Destroy any lingering sockets from the previous scenario
-    for (const socket of this.activeSockets) {
-      try { if (!socket.destroyed) socket.destroy(); } catch (_) {}
-    }
-    this.activeSockets.clear();
-    // Ensure previous scenario's servers are fully closed
-    if (this.tlsServer) { try { this.tlsServer.close(); } catch (_) {} this.tlsServer = null; }
-    if (this.nodeTlsServer) { try { this.nodeTlsServer.close(); } catch (_) {} this.nodeTlsServer = null; }
   }
 
   // ── Run a scenario on an already-connected socket (used by cluster workers) ─
@@ -299,212 +246,6 @@ class UnifiedServer {
   }
 
   // Execute raw TLS fuzz actions on a pre-connected socket
-  _execTLSOnSocket(scenario, socket) {
-    return new Promise(async (resolve) => {
-      this.activeSockets.add(socket);
-      const finish = (result) => {
-        this.activeSockets.delete(socket);
-        if (!socket.destroyed) socket.destroy();
-        resolve(result);
-      };
-
-      const pcap = this.pcap;
-      configureSocket(socket);
-      socket.resume(); // unpause if transferred via IPC with pauseOnConnect
-      this.logger.info(`Client connected from ${socket.remoteAddress}:${socket.remotePort}`);
-      if (pcap) pcap.writeTCPHandshake();
-
-      const actions = scenario.actions({ serverCert: this.certDER, hostname: this.hostname });
-      let connectionClosed = false;
-      let recvBuffer = Buffer.alloc(0);
-      let lastResponse = '';
-      let rawResponse = null;
-      let status = 'PASSED';
-
-      socket.on('data', (data) => { recvBuffer = Buffer.concat([recvBuffer, data]); });
-      socket.on('end', () => {
-        this.logger.tcpEvent('received', 'FIN');
-        if (pcap) pcap.writeFIN('received');
-      });
-      socket.on('close', () => { connectionClosed = true; });
-      socket.on('error', (err) => {
-        if (!connectionClosed) this.logger.error(`Client error: ${err.message}`);
-        connectionClosed = true;
-      });
-
-      try {
-        for (const action of actions) {
-          if (this.aborted || connectionClosed) {
-            if (this.aborted) status = 'ABORTED';
-            break;
-          }
-
-          switch (action.type) {
-            case 'send': {
-              if (connectionClosed || socket.destroyed) {
-                this.logger.error('Cannot send: connection closed'); status = 'DROPPED'; break;
-              }
-              try {
-                socket.write(action.data);
-                this.logger.sent(action.data, action.label);
-                if (pcap) pcap.writeTLSData(action.data, 'sent');
-              } catch (e) { this.logger.error(`Write failed: ${e.message}`); status = 'DROPPED'; }
-              break;
-            }
-
-            case 'recv': {
-              const alreadyReceived = recvBuffer;
-              recvBuffer = Buffer.alloc(0);
-              const dataFromWait = await this._waitForData(socket, action.timeout || this.timeout, () => connectionClosed);
-              recvBuffer = Buffer.alloc(0); // clear data already captured by _waitForData
-              const data = Buffer.concat([alreadyReceived, dataFromWait || Buffer.alloc(0)]);
-              if (data && data.length > 0) {
-                this.logger.received(data);
-                if (pcap) pcap.writeTLSData(data, 'received');
-                lastResponse = this._describeTLSResponse(data); rawResponse = data;
-              } else if (connectionClosed) {
-                lastResponse = 'Connection closed'; status = 'DROPPED';
-              } else {
-                lastResponse = 'Timeout'; status = 'TIMEOUT';
-              }
-              break;
-            }
-
-            case 'delay': await this._sleep(action.ms); break;
-
-            case 'fin': {
-              this.logger.tcpEvent('sent', action.label || 'FIN');
-              if (pcap) pcap.writeFIN('sent');
-              try { await sendFIN(socket); } catch (_) {}
-              break;
-            }
-
-            case 'rst': {
-              this.logger.tcpEvent('sent', action.label || 'RST');
-              if (pcap) pcap.writeRST('sent');
-              sendRST(socket); connectionClosed = true;
-              break;
-            }
-
-            case 'validate': {
-              if (!rawResponse || rawResponse.length === 0) {
-                this.logger.error(`Validation failed (${action.label}): no data received`);
-                if (action.alertOnFail && socket && !socket.destroyed && !connectionClosed) {
-                  const alert = buildAlert(AlertLevel.FATAL, AlertDescription.UNEXPECTED_MESSAGE);
-                  try { socket.write(alert); this.logger.sent(alert, 'Alert(fatal, UNEXPECTED_MESSAGE)'); } catch (_) {}
-                }
-                status = 'DROPPED';
-                break;
-              }
-              const { records: valRecords } = parseRecords(rawResponse);
-              let valid = true;
-
-              if (action.expect.recordType !== undefined) {
-                const matching = valRecords.filter(r => r.type === action.expect.recordType);
-                if (matching.length === 0) {
-                  valid = false;
-                } else if (action.expect.expectedSequence) {
-                  const actualTypes = [];
-                  for (const rec of matching) {
-                    let off = 0;
-                    while (off + 4 <= rec.payload.length) {
-                      actualTypes.push(rec.payload[off]);
-                      const msgLen = (rec.payload[off + 1] << 16) | (rec.payload[off + 2] << 8) | rec.payload[off + 3];
-                      off += 4 + msgLen;
-                    }
-                  }
-                  const expected = action.expect.expectedSequence;
-                  if (actualTypes.length !== expected.length) {
-                    valid = false;
-                  } else {
-                    for (let i = 0; i < expected.length; i++) {
-                      if (actualTypes[i] !== expected[i]) { valid = false; break; }
-                    }
-                  }
-                } else if (action.expect.handshakeTypes) {
-                  const hsTypes = new Set();
-                  for (const rec of matching) {
-                    let off = 0;
-                    while (off + 4 <= rec.payload.length) {
-                      hsTypes.add(rec.payload[off]);
-                      const msgLen = (rec.payload[off + 1] << 16) | (rec.payload[off + 2] << 8) | rec.payload[off + 3];
-                      off += 4 + msgLen;
-                    }
-                  }
-                  for (const expected of action.expect.handshakeTypes) {
-                    if (!hsTypes.has(expected)) { valid = false; break; }
-                  }
-                }
-              }
-
-              let contentAlertDesc = AlertDescription.UNEXPECTED_MESSAGE;
-              if (valid && action.expect.contentValidate) {
-                const validators = { clientHello: validateClientHello, serverFlight: validateServerFlight, clientKeyExchange: validateClientKeyExchange };
-                const fn = validators[action.expect.contentValidate];
-                if (fn) {
-                  const result = fn(rawResponse);
-                  if (!result.valid) {
-                    valid = false;
-                    contentAlertDesc = result.alertDescription || AlertDescription.UNEXPECTED_MESSAGE;
-                    this.logger.error(`Content validation failed (${action.label}): ${result.reason}`);
-                  }
-                }
-              }
-
-              if (!valid) {
-                this.logger.error(`Validation failed (${action.label}): unexpected TLS message`);
-                const alertDesc = contentAlertDesc;
-                if (action.alertOnFail && socket && !socket.destroyed && !connectionClosed) {
-                  const { AlertDescriptionName } = require('./constants');
-                  const alertName = AlertDescriptionName[alertDesc] || 'UNEXPECTED_MESSAGE';
-                  const alert = buildAlert(AlertLevel.FATAL, alertDesc);
-                  try { socket.write(alert); this.logger.sent(alert, `Alert(fatal, ${alertName})`); } catch (_) {}
-                  if (pcap) pcap.writeTLSData(alert, 'sent');
-                  status = 'tls-alert-server';
-                } else {
-                  status = 'DROPPED';
-                }
-              } else {
-                this.logger.info(`Validation passed: ${action.label}`);
-              }
-              break;
-            }
-          }
-
-          if (action.type === 'validate' && (status === 'DROPPED' || status === 'tls-alert-server')) break;
-          if (action.type !== 'delay' && action.type !== 'recv') await this._sleep(this.delay);
-        }
-
-        if (status === 'PASSED' && lastResponse && /^ClientHello\(/.test(lastResponse)) {
-          lastResponse = 'Handshake completed';
-        }
-        if (lastResponse && /^Alert\(fatal/i.test(lastResponse)) {
-          status = 'tls-alert-client';
-        }
-
-        const computed = computeExpected(scenario);
-        const expected = 'expected' in scenario ? scenario.expected : computed.expected;
-        const expectedReason = scenario.expectedReason || computed.reason;
-        const verdict = this._computeVerdict(status, expected, lastResponse);
-        const result = {
-          scenario: scenario.name, description: scenario.description, category: scenario.category,
-          status, expected, verdict,
-          response: lastResponse || status,
-        };
-        result.finding = gradeResult(result, scenario);
-        this.logger.result(scenario.name, status, lastResponse || 'No response', verdict, expectedReason, false, result.finding);
-        finish(result);
-      } catch (e) {
-        this.logger.error(`Raw TLS scenario failed: ${e.message}`);
-        finish({
-          scenario: scenario.name, description: scenario.description, category: scenario.category,
-          status: 'ERROR', expected: scenario.expected || 'PASSED', verdict: 'UNEXPECTED',
-          response: e.message,
-        });
-      }
-    });
-  }
-
   _execNodeTLSOnSocket(scenario, rawSocket) {
     return new Promise((resolve) => {
       this.activeSockets.add(rawSocket);
@@ -540,31 +281,8 @@ class UnifiedServer {
 
       tlsSocket.on('data', (data) => {
         if (responded) return;
-        this.logger.received(data);
-        const log = (msg) => this.logger.info(msg);
-
-        if (typeof scenario.serverHandler === 'function') {
-          responded = true;
-          try {
-            scenario.serverHandler(tlsSocket, log, data);
-            const res = {
-              scenario: scenario.name, description: scenario.description, category: scenario.category,
-              status: 'PASSED', expected: scenario.expected || 'PASSED', verdict: 'AS EXPECTED',
-              response: `Handler executed (node-tls)`,
-            };
-            res.finding = gradeResult(res, scenario);
-            this.logger.result(scenario.name, 'PASSED', res.response, 'AS EXPECTED');
-            
-            // Allow handler to finish sending data before closing
-            setTimeout(() => finish(res), 2000);
-          } catch (e) {
-            this.logger.error(`Scenario handler error: ${e.message}`);
-            finish({ scenario: scenario.name, status: 'ERROR', response: e.message });
-          }
-          return;
-        }
-
         responded = true;
+        this.logger.received(data);
         lastResponse = 'Client data: ' + data.length + ' bytes';
         try {
           tlsSocket.end('HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nOK');
@@ -622,27 +340,19 @@ class UnifiedServer {
       this.logger.scenario(scenario.name, scenario.description);
 
       let resolved = false;
-      let promiseResolved = false;
       const resolveOnce = (result) => {
         if (resolved) return;
         resolved = true;
-        const doResolve = () => {
-          if (promiseResolved) return;
-          promiseResolved = true;
-          resolve(result);
-        };
         if (this.tlsServer) {
           const srv = this.tlsServer;
           this.tlsServer = null;
-          // Force-destroy any lingering connections so srv.close() completes quickly
-          for (const socket of this.activeSockets) {
-            try { socket.destroy(); } catch (_) {}
-          }
-          this.activeSockets.clear();
-          srv.close(() => doResolve());
-          setTimeout(doResolve, 2000);
+          srv.getConnections((_, count) => {
+            if (count > 0) this.logger.info(`Closing ${count} lingering connection(s)`);
+          });
+          srv.close(() => resolve(result));
+          setTimeout(() => resolve(result), 5000);
         } else {
-          doResolve();
+          resolve(result);
         }
       };
 
@@ -655,10 +365,9 @@ class UnifiedServer {
 
       this.tlsServer = net.createServer({ allowHalfOpen: true }, connectionHandler);
 
-      const listenWithRetry = (srv, retriesLeft) => {
-        if (this.aborted) return;
-        srv.listen(this.port, () => {
-          this.logger.info(`Fuzzer server listening on port ${this.port} — waiting for connection...`);
+      const listenWithRetry = (retriesLeft) => {
+        this.tlsServer.listen(this.port, '0.0.0.0', () => {
+          this.logger.info(`Fuzzer server listening on 0.0.0.0:${this.port} — waiting for connection...`);
           if (this._onListening) this._onListening();
           acceptTimer = setTimeout(() => {
             const computed = computeExpected(scenario);
@@ -669,21 +378,17 @@ class UnifiedServer {
               verdict: 'N/A',
               response: 'No client connected (accept timeout)',
             });
-          }, 60000);
+          }, 10000);
         });
 
-        srv.on('error', (err) => {
+        this.tlsServer.on('error', (err) => {
           if (this.aborted) return;
           if (err.code === 'EADDRINUSE' && retriesLeft > 0) {
-            if (retriesLeft % 5 === 0) {
-              this.logger.info(`Port ${this.port} in use, retrying (${retriesLeft} left)...`);
-            }
-            srv.close();
-            const nextSrv = net.createServer({ allowHalfOpen: true }, connectionHandler);
-            this.tlsServer = nextSrv;
+            this.tlsServer.close();
+            this.tlsServer = net.createServer({ allowHalfOpen: true }, connectionHandler);
             setTimeout(() => {
               if (this.aborted) return;
-              listenWithRetry(nextSrv, retriesLeft - 1);
+              listenWithRetry(retriesLeft - 1);
             }, 500);
             return;
           }
@@ -691,9 +396,8 @@ class UnifiedServer {
           clearTimeout(acceptTimer);
           resolveOnce({ scenario: scenario.name, description: scenario.description, status: 'ERROR', response: err.message });
         });
-      };
 
-      listenWithRetry(this.tlsServer, 30);
+        listenWithRetry(30); // 15 seconds total window
     });
   }
 
@@ -703,29 +407,17 @@ class UnifiedServer {
       this.logger.scenario(scenario.name, scenario.description);
 
       let resolved = false;
-      let promiseResolved = false;
+      let server;
       const resolveOnce = (result) => {
         if (resolved) return;
         resolved = true;
-
-        // Forcefully close all active sockets for this server instance
-        for (const socket of this.activeSockets) {
-          try { socket.destroy(); } catch (_) {}
-        }
-        this.activeSockets.clear();
-
-        const doResolve = () => {
-          if (promiseResolved) return;
-          promiseResolved = true;
-          resolve(result);
-        };
-        if (this.nodeTlsServer) {
-          const srv = this.nodeTlsServer;
-          this.nodeTlsServer = null;
-          srv.close(() => doResolve());
-          setTimeout(doResolve, 500);
+        if (server) {
+          const srv = server;
+          server = null;
+          srv.close(() => resolve(result));
+          setTimeout(() => resolve(result), 500);
         } else {
-          doResolve();
+          resolve(result);
         }
       };
 
@@ -800,33 +492,15 @@ class UnifiedServer {
           key: this.h2KeyPEM, cert: this.h2CertPEM,
           rejectUnauthorized: false, ALPNProtocols: ['h2', 'http/1.1'],
         });
-        srv.on('connection', (socket) => {
-          this.activeSockets.add(socket);
-          socket.on('close', () => this.activeSockets.delete(socket));
-
-          // Handshake timeout: if it hasn't become secure within 10s, destroy it
-          const hsTimer = setTimeout(() => {
-            if (!socket.destroyed && !socket.encrypted) {
-              this.logger.info(`[node-tls] Handshake timed out after 10s`);
-              socket.destroy();
-            }
-          }, 10000);
-          socket.on('secureConnect', () => clearTimeout(hsTimer));
-          socket.on('error', () => clearTimeout(hsTimer));
-          socket.on('close', () => clearTimeout(hsTimer));
-        });
-        srv.on('secureConnection', (socket) => {
-          this.activeSockets.add(socket);
-          socket.on('close', () => this.activeSockets.delete(socket));
-          secureConnHandler(socket);
-        });
+        srv.on('secureConnection', secureConnHandler);
         srv.on('tlsClientError', tlsErrorHandler);
         return srv;
       };
 
-      const listenNodeTLS = (srv, retriesLeft) => {
-        if (this.aborted) return;
-        srv.listen(this.port, () => {
+      server = createNodeTLSServer();
+
+      const listenNodeTLS = (retriesLeft) => {
+        server.listen(this.port, '0.0.0.0', () => {
           this.logger.info(`[node-tls] TLS server listening on port ${this.port}`);
           if (this._onListening) this._onListening();
           acceptTimer = setTimeout(() => {
@@ -836,22 +510,17 @@ class UnifiedServer {
               status: 'TIMEOUT', expected: computed.expected, verdict: 'N/A',
               response: 'No client connected (accept timeout)',
             });
-          }, 60000);
+          }, 30000);
         });
 
-        srv.on('error', (err) => {
-          if (this.aborted) return;
+        server.on('error', (err) => {
           if (err.code === 'EADDRINUSE' && retriesLeft > 0) {
-            if (retriesLeft % 5 === 0) {
-              this.logger.info(`Port ${this.port} in use, retrying (${retriesLeft} left)...`);
+            if (retriesLeft < 25) {
+              this.logger.info(`Port ${this.port} still in use, retrying in 500ms...`);
             }
-            srv.close();
-            const nextSrv = createNodeTLSServer();
-            this.nodeTlsServer = nextSrv;
-            setTimeout(() => {
-              if (this.aborted) return;
-              listenNodeTLS(nextSrv, retriesLeft - 1);
-            }, 500);
+            server.close();
+            server = createNodeTLSServer();
+            setTimeout(() => listenNodeTLS(retriesLeft - 1), 500);
             return;
           }
           this.logger.error(`[node-tls] Server error: ${err.message}`);
@@ -860,8 +529,7 @@ class UnifiedServer {
         });
       };
 
-      this.nodeTlsServer = createNodeTLSServer();
-      listenNodeTLS(this.nodeTlsServer, 30);
+      listenNodeTLS(5);
     });
   }
 
@@ -874,98 +542,83 @@ class UnifiedServer {
   async startH2() {
     if (this.h2Server) return;
 
-    const setupH2Server = () => {
-      const srv = http2.createSecureServer({
-        key: this.h2KeyPEM,
-        cert: this.h2CertPEM,
-        allowHTTP1: true,
-      });
+    this.h2Server = http2.createSecureServer({
+      key: this.h2KeyPEM,
+      cert: this.h2CertPEM,
+      allowHTTP1: true,
+    });
 
-      srv.on('error', (err) => { this.logger.error(`HTTP/2 server error: ${err.message}`); });
+    this.h2Server.on('error', (err) => { this.logger.error(`HTTP/2 server error: ${err.message}`); });
 
-      // Capture the real TLS socket before the HTTP/2 session wraps it in a Proxy.
-      srv.on('connection', (socket) => {
-        this._h2RawSocket = socket;
-      });
+    // Capture the real TLS socket before the HTTP/2 session wraps it in a Proxy.
+    // This allows writeRawFrame() to write directly without hitting
+    // ERR_HTTP2_NO_SOCKET_MANIPULATION or native assertion crashes.
+    this.h2Server.on('connection', (socket) => {
+      this._h2RawSocket = socket;
+    });
 
-      srv.on('session', (session) => {
-        this.activeSockets.add(session);
-        session.on('close', () => this.activeSockets.delete(session));
-        session.on('error', () => this.activeSockets.delete(session));
+    this.h2Server.on('session', (session) => {
+      this.activeSockets.add(session);
+      session.on('close', () => this.activeSockets.delete(session));
+      session.on('error', () => this.activeSockets.delete(session));
 
-        if (this._h2RawSocket) {
-          session._rawSocket = this._h2RawSocket;
-          this._h2RawSocket = null;
+      // Attach the raw socket to the session for writeRawFrame() to use
+      if (this._h2RawSocket) {
+        session._rawSocket = this._h2RawSocket;
+        this._h2RawSocket = null;
+      }
+      const remoteAddr = session.socket ? session.socket.remoteAddress : 'unknown';
+      this.logger.info(`HTTP/2 session from ${remoteAddr}`);
+      session.on('error', (err) => { this.logger.error(`Session error: ${err.message}`); });
+      session.on('close', () => { this.logger.info(`Session closed from ${remoteAddr}`); });
+
+      session.on('stream', (stream) => {
+        this.activeSockets.add(stream);
+        stream.on('close', () => this.activeSockets.delete(stream));
+        stream.on('error', () => this.activeSockets.delete(stream));
+        if (this.aborted) {
+          try { stream.destroy(); } catch (_) {}
         }
-        const remoteAddr = session.socket ? session.socket.remoteAddress : 'unknown';
-        this.logger.info(`HTTP/2 session from ${remoteAddr}`);
-        session.on('error', (err) => { this.logger.error(`Session error: ${err.message}`); });
-        session.on('close', () => { this.logger.info(`Session closed from ${remoteAddr}`); });
-
-        session.on('stream', (stream) => {
-          this.activeSockets.add(stream);
-          stream.on('close', () => this.activeSockets.delete(stream));
-          stream.on('error', () => this.activeSockets.delete(stream));
-          if (this.aborted) {
-            try { stream.destroy(); } catch (_) {}
-          }
-        });
       });
+    });
 
-      srv.on('stream', (stream, headers) => {
-        if (this._h2StreamHandler) {
-          const handler = this._h2StreamHandler;
-          this._h2StreamHandler = null;
-          handler(stream);
-          return;
-        }
-
-        if (this._h2WaitingForStream) {
-          this._h2PendingStreams.push(stream);
-          return;
-        }
-
-        const method = headers[':method'] || 'UNKNOWN';
-        const path = headers[':path'] || '/';
-        this.logger.info(`HTTP/2 request: ${method} ${path}`);
-        try { stream.respond({ ':status': 200, 'content-type': 'text/plain' }); stream.end('HTTP/2 OK'); } catch (_) {}
-      });
-      
-      return srv;
-    };
-
+    // Default handler: when a scenario is active, dispatch to its handler.
+    // When a scenario is waiting, queue the stream.
+    // When idle (passive mode), respond 200.
     this._h2PendingStreams = [];
     this._h2StreamHandler = null;
-    this.h2Server = setupH2Server();
+
+    this.h2Server.on('stream', (stream, headers) => {
+      // 1. If a scenario is waiting for its first stream, give it directly
+      if (this._h2StreamHandler) {
+        const handler = this._h2StreamHandler;
+        this._h2StreamHandler = null;
+        handler(stream);
+        return;
+      }
+
+      // 2. Queue streams that arrive between scenarios (client connected early)
+      if (this._h2WaitingForStream) {
+        this._h2PendingStreams.push(stream);
+        return;
+      }
+
+      // 3. Passive mode default response
+      const method = headers[':method'] || 'UNKNOWN';
+      const path = headers[':path'] || '/';
+      this.logger.info(`HTTP/2 request: ${method} ${path}`);
+      try { stream.respond({ ':status': 200, 'content-type': 'text/plain' }); stream.end('HTTP/2 OK'); } catch (_) {}
+    });
 
     await new Promise((resolve, reject) => {
-      const listenWithRetry = (srv, retriesLeft) => {
-        if (this.aborted) return;
-        srv.listen(this.port, () => {
-          this.logger.info(
-            `HTTP/2 server listening on port ${this.port} | ` +
-            `cert SHA256=${this.h2Fingerprint.slice(0, 16)}...`
-          );
-          resolve();
-        });
-
-        srv.once('error', (err) => {
-          if (this.aborted) return;
-          if (err.code === 'EADDRINUSE' && retriesLeft > 0) {
-            if (retriesLeft % 5 === 0) {
-              this.logger.info(`HTTP/2 port ${this.port} in use, retrying (${retriesLeft} left)...`);
-            }
-            srv.close();
-            const nextSrv = setupH2Server();
-            this.h2Server = nextSrv;
-            setTimeout(() => listenWithRetry(nextSrv, retriesLeft - 1), 500);
-            return;
-          }
-          reject(err);
-        });
-      };
-      
-      listenWithRetry(this.h2Server, 30);
+      this.h2Server.listen(this.port, '0.0.0.0', () => {
+        this.logger.info(
+          `HTTP/2 server listening on 0.0.0.0:${this.port} | ` +
+          `cert SHA256=${this.h2Fingerprint.slice(0, 16)}...`
+        );
+        resolve();
+      });
+      this.h2Server.once('error', reject);
     });
   }
 
@@ -1083,48 +736,7 @@ class UnifiedServer {
     return new Promise((resolve) => {
       let acceptTimer = null;
 
-      const listenWithRetry = (retriesLeft) => {
-        if (this.aborted) return;
-        this.tlsServer.listen(this.port, '::', () => {
-          this.logger.info(`Raw TCP server listening on [::]:${this.port} — waiting for connection...`);
-          if (this._onListening) this._onListening();
-          acceptTimer = setTimeout(() => {
-            const computed = computeExpected(scenario);
-            if (this.tlsServer) {
-              this.tlsServer.close();
-              this.tlsServer = null;
-            }
-            resolve({
-              scenario: scenario.name, description: scenario.description, category: scenario.category,
-              status: 'TIMEOUT',
-              expected: 'expected' in scenario ? scenario.expected : computed.expected,
-              verdict: 'N/A',
-              response: 'No client connected (accept timeout)',
-            });
-          }, 10000);
-        });
-
-        this.tlsServer.on('error', (err) => {
-          if (this.aborted) return;
-          if (err.code === 'EADDRINUSE' && retriesLeft > 0) {
-            if (retriesLeft % 5 === 0) {
-              this.logger.info(`Port ${this.port} in use, retrying (${retriesLeft} left)...`);
-            }
-            this.tlsServer.close();
-            this.tlsServer = net.createServer({ allowHalfOpen: true }, connectionHandler);
-            setTimeout(() => {
-              if (this.aborted) return;
-              listenWithRetry(retriesLeft - 1);
-            }, 500);
-            return;
-          }
-          this.logger.error(`Server error: ${err.message}`);
-          clearTimeout(acceptTimer);
-          resolve({ scenario: scenario.name, description: scenario.description, status: 'ERROR', response: err.message });
-        });
-      };
-
-      const connectionHandler = async (socket) => {
+      this.tlsServer = net.createServer({ allowHalfOpen: true }, async (socket) => {
         clearTimeout(acceptTimer);
         configureSocket(socket);
         this.logger.info(`Client connected from ${socket.remoteAddress}:${socket.remotePort}`);
@@ -1254,40 +866,38 @@ class UnifiedServer {
           this.tlsServer = null;
         }
         resolve(result);
-      };
+      });
 
-      this.tlsServer = net.createServer({ allowHalfOpen: true }, connectionHandler);
-      listenWithRetry(30);
+      this.tlsServer.listen(this.port, '0.0.0.0', () => {
+        this.logger.info(`Raw TCP server listening on 0.0.0.0:${this.port} — waiting for connection...`);
+        acceptTimer = setTimeout(() => {
+          const computed = computeExpected(scenario);
+          if (this.tlsServer) {
+            this.tlsServer.close();
+            this.tlsServer = null;
+          }
+          resolve({
+            scenario: scenario.name, description: scenario.description, category: scenario.category,
+            status: 'TIMEOUT',
+            expected: 'expected' in scenario ? scenario.expected : computed.expected,
+            verdict: 'N/A',
+            response: 'No client connected (accept timeout)',
+          });
+        }, 10000);
+      });
+
+      this.tlsServer.on('error', (err) => {
+        this.logger.error(`Server error: ${err.message}`);
+        clearTimeout(acceptTimer);
+        resolve({ scenario: scenario.name, description: scenario.description, status: 'ERROR', response: err.message });
+      });
     });
   }
 
   // ── QUIC server scenario ───────────────────────────────────────────────────
 
-  async startQuic(scenario) {
+  async startQuic() {
     if (this.quicServer) return;
-
-    if (scenario && scenario.isOpenSslBaseline) {
-      let quicheLib = null;
-      try {
-        quicheLib = require('@currentspace/http3');
-      } catch (e) {}
-
-      if (quicheLib) {
-        const { QuicheServer } = require('./quic-engines/quiche-server');
-        this.quicServer = new QuicheServer({
-          port: this.port,
-          hostname: this.hostname,
-          timeout: this.timeout,
-          delay: this.delay,
-          logger: this.logger,
-          quicheLibrary: quicheLib,
-          keyPEM: this.h2KeyPEM,
-          certPEM: this.h2CertPEM
-        });
-        await this.quicServer.start();
-        return;
-      }
-    }
 
     // Server-side QUIC scenarios send raw crafted packets to connecting clients.
     // They need the raw UDP QuicFuzzerServer, not quiche (which is a compliant
@@ -1303,7 +913,7 @@ class UnifiedServer {
   }
 
   async _runQuicScenario(scenario) {
-    if (!this.quicServer) await this.startQuic(scenario);
+    if (!this.quicServer) await this.startQuic();
     if (this.aborted) return { scenario: scenario.name, description: scenario.description, status: 'ABORTED', response: 'Aborted' };
     // Signal that the server is ready for a client connection
     if (this._onListening) this._onListening();
@@ -1381,18 +991,10 @@ class UnifiedServer {
       let timer;
       let settled = false;
 
-      const checkClosed = setInterval(() => {
-        if (isClosedFn() || socket.destroyed) {
-          clearInterval(checkClosed);
-          setTimeout(done, 100);
-        }
-      }, 50);
-
       const done = () => {
         if (settled) return;
         settled = true;
         clearTimeout(timer);
-        clearInterval(checkClosed);
         socket.removeListener('data', onData);
         resolve(buf.length > 0 ? buf : null);
       };
@@ -1405,6 +1007,13 @@ class UnifiedServer {
 
       socket.on('data', onData);
       timer = setTimeout(done, timeout);
+
+      const checkClosed = setInterval(() => {
+        if (isClosedFn() || socket.destroyed) {
+          clearInterval(checkClosed);
+          setTimeout(done, 100);
+        }
+      }, 50);
     });
   }
 

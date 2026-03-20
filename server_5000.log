@@ -1,0 +1,17 @@
+[32m21:23:56.879 ℹ Server certificate: CN=localhost | SHA256=68:99:49:B9:F9:4C:02:F6:86:13:9E:70:0D:35:DA:67:E9:FB:FB:77:F9:CF:BF:E7:61:97:90:03:7D:DA:E0:80[0m
+[32m21:23:56.895 ℹ HTTP/3 server listening on 0.0.0.0:5000 (UDP, quiche)[0m
+
+[1m[35m━━━ Scenario: srv-quic-well-behaved-echo ━━━[0m
+[90m    Server: Well-behaved HTTP/3 echo server (functional validation) (using quiche Native Engine)[0m
+[32m21:23:56.896 ℹ Waiting for QUIC client connection on port 5000...[0m
+[1m[33m  Result: ERROR[0m [90m(listen EADDRINUSE: address already in use 0.0.0.0:5000)[0m [90m[INFO][0m [90mScenario error[0m
+
+[1m[37m━━━ Summary ━━━[0m
+
+  Total: 1  [31mDropped: 0[0m  [32mPassed: 0[0m  [33mErrors: 1[0m  [90mTimeout: 0[0m
+  [32mAs Expected: 0[0m  [90mUnexpected: 0[0m
+
+  Scenario                                 Description                                        Status     Finding  Verdict        Response
+  ──────────────────────────────────────── ────────────────────────────────────────────────── ────────── ──────── ────────────── ──────────────────────────────
+  srv-quic-well-behaved-echo               [90mServer: Well-behaved HTTP/3 echo server (functio  [0m [33mERROR     [0m [90mINFO    [0m [90mN/A           [0m listen EADDRINUSE: address already in use 0.0.0.0:5000
+

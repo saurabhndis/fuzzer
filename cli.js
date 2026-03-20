@@ -32,6 +32,7 @@ const USAGE = `
     --verbose               Show hex dumps of all packets
     --json                  Output results as JSON
     --pcap <file.pcap>      Record packets to PCAP file
+    --no-baseline           Skip OpenSSL/baseline comparison testing
 
   Examples:
     node cli.js list
@@ -48,6 +49,8 @@ function parseArgs(argv) {
       const key = argv[i].slice(2);
       if (key === 'verbose' || key === 'json') {
         args[key] = true;
+      } else if (key === 'no-baseline') {
+        args.baseline = false;
       } else if (i + 1 < argv.length) {
         args[key] = argv[++i];
       }
@@ -55,6 +58,13 @@ function parseArgs(argv) {
       args._.push(argv[i]);
     }
   }
+  
+  // Default baseline to true only for TLS protocol
+  const protocol = args.protocol || 'tls';
+  if (args.baseline === undefined) {
+    args.baseline = (protocol === 'tls');
+  }
+
   return args;
 }
 
@@ -201,9 +211,11 @@ async function main() {
 
     const originalRunScenario = client.runScenario.bind(client);
     client.runScenario = async (scenario) => {
-      if (!logger.json) console.log(`\x1b[90m    [baseline] testing against local OpenSSL...\x1b[0m`);
-      const baselineRes = await runBaseline(scenario, protocol);
-      scenario._baselineResponse = baselineRes.response;
+      if (args.baseline) {
+        if (!logger.json) console.log(`\x1b[90m    [baseline] testing against local OpenSSL...\x1b[0m`);
+        const baselineRes = await runBaseline(scenario, protocol);
+        scenario._baselineResponse = baselineRes.response;
+      }
       return originalRunScenario(scenario);
     };
 
@@ -311,9 +323,11 @@ async function main() {
 
     const originalRunScenario = server.runScenario.bind(server);
     server.runScenario = async (scenario) => {
-      if (!logger.json) console.log(`\x1b[90m    [baseline] testing against local OpenSSL...\x1b[0m`);
-      const baselineRes = await runBaseline(scenario, protocol);
-      scenario._baselineResponse = baselineRes.response;
+      if (args.baseline) {
+        if (!logger.json) console.log(`\x1b[90m    [baseline] testing against local OpenSSL...\x1b[0m`);
+        const baselineRes = await runBaseline(scenario, protocol);
+        scenario._baselineResponse = baselineRes.response;
+      }
       return originalRunScenario(scenario);
     };
 

@@ -223,7 +223,7 @@ async function workerMain(args) {
   const useRawTcp = protocol === 'raw-tcp';
 
   if (pcapFile) {
-    pcapFile = `${pcapFile}.worker-${process.pid}`;
+    pcapFile = pcapFile.replace(/\.pcap$/i, '') + `.worker-${process.pid}.pcap`;
   }
 
   const logger = new Logger({ verbose: args.verbose, json: args.json });
