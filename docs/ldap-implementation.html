@@ -1,0 +1,1026 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LDAP Protocol Fuzzer — Implementation Plan</title>
+    <script type="module">
+        import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';
+        mermaid.initialize({ startOnLoad: true, theme: 'dark' });
+    </script>
+    <style>
+        :root {
+            --bg: #0f172a;
+            --surface: #1e293b;
+            --primary: #38bdf8;
+            --secondary: #818cf8;
+            --text: #f1f5f9;
+            --text-dim: #94a3b8;
+            --accent: #f472b6;
+            --warning: #fbbf24;
+            --danger: #ef4444;
+            --success: #10b981;
+            --ldap: #f59e0b;
+        }
+        body {
+            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+            background-color: var(--bg);
+            color: var(--text);
+            line-height: 1.6;
+            margin: 0;
+            padding: 0;
+        }
+        .container { max-width: 1100px; margin: 0 auto; padding: 40px 20px; }
+        header { border-bottom: 1px solid var(--surface); padding-bottom: 20px; margin-bottom: 40px; }
+        h1 { font-size: 2.5rem; margin: 0; color: var(--ldap); }
+        h1 small { font-size: 1rem; color: var(--text-dim); display: block; margin-top: 8px; }
+        h2 { font-size: 1.8rem; margin-top: 60px; color: var(--secondary); border-left: 4px solid var(--ldap); padding-left: 15px; }
+        h3 { font-size: 1.3rem; color: var(--accent); margin-top: 30px; }
+        h4 { color: var(--text); font-size: 1.1rem; }
+        p { color: var(--text-dim); font-size: 1.05rem; }
+        a { color: var(--primary); text-decoration: none; }
+        a:hover { text-decoration: underline; }
+        code {
+            background: #334155; padding: 2px 6px; border-radius: 4px;
+            font-family: 'Courier New', monospace; color: var(--accent); font-size: 0.95em;
+        }
+
+        .toc { background: var(--surface); border-radius: 12px; padding: 25px 30px; margin: 30px 0; }
+        .toc h3 { margin-top: 0; color: var(--primary); }
+        .toc ol { padding-left: 20px; }
+        .toc li { margin: 6px 0; }
+        .toc a { color: var(--text-dim); }
+        .toc a:hover { color: var(--primary); }
+
+        .diagram-card { background: var(--surface); border-radius: 12px; padding: 20px; margin: 20px 0; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1); overflow-x: auto; }
+
+        .callout { border-radius: 10px; padding: 20px 25px; margin: 20px 0; font-size: 1.05rem; }
+        .callout-info { background: #1e3a5f; border-left: 4px solid var(--primary); }
+        .callout-tip { background: #1a3a2a; border-left: 4px solid var(--success); }
+        .callout-warn { background: #3a2a1a; border-left: 4px solid var(--warning); }
+        .callout-danger { background: #3a1a1a; border-left: 4px solid var(--danger); }
+        .callout strong { color: var(--text); }
+        .callout p { margin: 5px 0; font-size: 1rem; }
+
+        .matrix-table { width: 100%; border-collapse: collapse; margin: 20px 0; background: var(--surface); border-radius: 8px; overflow: hidden; }
+        .matrix-table th, .matrix-table td { padding: 12px 15px; text-align: left; border-bottom: 1px solid #334155; }
+        .matrix-table th { background: #334155; color: var(--primary); font-size: 0.9rem; text-transform: uppercase; }
+        .matrix-table tr:last-child td { border-bottom: none; }
+
+        .code-block {
+            background: #0d1117; border: 1px solid #30363d; border-radius: 8px;
+            padding: 16px 20px; font-family: 'Courier New', monospace; font-size: 0.9rem;
+            color: var(--text); overflow-x: auto; line-height: 1.6; white-space: pre;
+        }
+        .code-block .kw { color: #ff7b72; }
+        .code-block .str { color: #a5d6ff; }
+        .code-block .cm { color: #6e7681; }
+        .code-block .fn { color: #d2a8ff; }
+        .code-block .num { color: #79c0ff; }
+        .code-block .tag { color: #7ee787; }
+
+        .phase-header {
+            background: linear-gradient(135deg, #1e293b, #1a1a3e);
+            border: 2px solid var(--ldap);
+            border-radius: 12px;
+            padding: 20px 25px;
+            margin: 40px 0 20px 0;
+            display: flex;
+            align-items: center;
+            gap: 20px;
+        }
+        .phase-number {
+            background: var(--ldap);
+            color: var(--bg);
+            font-weight: bold;
+            font-size: 1.5rem;
+            width: 50px; height: 50px;
+            border-radius: 50%;
+            display: flex; align-items: center; justify-content: center;
+            flex-shrink: 0;
+        }
+        .phase-info h3 { margin: 0; color: var(--text); font-size: 1.3rem; }
+        .phase-info p { margin: 5px 0 0 0; font-size: 0.95rem; color: var(--text-dim); }
+
+        .step-list { list-style: none; padding: 0; margin: 15px 0; }
+        .step-list li {
+            background: var(--surface);
+            border-radius: 8px;
+            padding: 15px 20px;
+            margin: 10px 0;
+            border-left: 4px solid #334155;
+            display: flex;
+            align-items: flex-start;
+            gap: 12px;
+        }
+        .step-list li.critical { border-left-color: var(--danger); }
+        .step-list li.important { border-left-color: var(--warning); }
+        .step-list li.normal { border-left-color: var(--primary); }
+        .step-icon { font-size: 1.2rem; flex-shrink: 0; margin-top: 2px; }
+        .step-content h4 { margin: 0 0 5px 0; font-size: 1rem; }
+        .step-content p { margin: 0; font-size: 0.9rem; color: var(--text-dim); }
+
+        .timeline {
+            position: relative;
+            padding-left: 40px;
+            margin: 20px 0;
+        }
+        .timeline::before {
+            content: '';
+            position: absolute;
+            left: 15px;
+            top: 0;
+            bottom: 0;
+            width: 2px;
+            background: #334155;
+        }
+        .timeline-item {
+            position: relative;
+            padding: 15px 20px;
+            background: var(--surface);
+            border-radius: 8px;
+            margin: 15px 0;
+        }
+        .timeline-item::before {
+            content: '';
+            position: absolute;
+            left: -33px;
+            top: 20px;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: var(--ldap);
+            border: 3px solid var(--bg);
+        }
+        .timeline-item h4 { margin: 0 0 5px 0; color: var(--text); }
+        .timeline-item p { margin: 0; font-size: 0.9rem; color: var(--text-dim); }
+        .timeline-item .file-tag {
+            display: inline-block;
+            background: #334155;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 0.8rem;
+            font-family: monospace;
+            color: var(--ldap);
+            margin: 3px 2px;
+        }
+
+        .dep-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 15px;
+            margin: 20px 0;
+        }
+        .dep-card {
+            background: var(--surface);
+            border-radius: 10px;
+            padding: 15px 20px;
+            border-top: 3px solid var(--primary);
+        }
+        .dep-card h4 { margin: 0 0 8px 0; color: var(--warning); font-size: 1rem; }
+        .dep-card p { margin: 0; font-size: 0.9rem; }
+        .dep-card.done { border-top-color: var(--success); opacity: 0.7; }
+        .dep-card.blocked { border-top-color: var(--danger); }
+
+        .risk-table { width: 100%; border-collapse: collapse; margin: 20px 0; }
+        .risk-table th, .risk-table td { padding: 12px 15px; text-align: left; border-bottom: 1px solid #334155; }
+        .risk-table th { background: #334155; color: var(--primary); }
+        .risk-table .risk-high { color: var(--danger); font-weight: bold; }
+        .risk-table .risk-medium { color: var(--warning); }
+        .risk-table .risk-low { color: var(--success); }
+
+        .checklist { list-style: none; padding: 0; }
+        .checklist li { padding: 8px 0; font-size: 1rem; color: var(--text-dim); border-bottom: 1px solid #1e293b; }
+        .checklist li::before { content: '\2610'; margin-right: 10px; font-size: 1.2rem; color: var(--primary); }
+
+        .footer {
+            margin-top: 80px; text-align: center; color: var(--text-dim);
+            font-size: 0.9rem; border-top: 1px solid var(--surface); padding-top: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>LDAP Protocol Fuzzer
+                <small>Implementation Plan &mdash; Step-by-Step Build Guide</small>
+            </h1>
+            <p>This document describes <strong>what to build, in what order, and how each piece connects</strong>. Companion to <a href="ldap-architecture.html">ldap-architecture.html</a>.</p>
+        </header>
+
+        <!-- TABLE OF CONTENTS -->
+        <div class="toc">
+            <h3>Contents</h3>
+            <ol>
+                <li><a href="#overview">Implementation Overview</a></li>
+                <li><a href="#dependency-graph">Dependency Graph</a></li>
+                <li><a href="#phase-1">Phase 1: BER/ASN.1 Wire Format (ldap-packet.js)</a></li>
+                <li><a href="#phase-2">Phase 2: Scenario Definitions (ldap-scenarios.js)</a></li>
+                <li><a href="#phase-3">Phase 3: Client Engine (ldap-fuzzer-client.js)</a></li>
+                <li><a href="#phase-4">Phase 4: AD Simulation Server (ldap-fuzzer-server.js)</a></li>
+                <li><a href="#phase-5">Phase 5: Core Integration</a></li>
+                <li><a href="#phase-6">Phase 6: Local Target Support</a></li>
+                <li><a href="#phase-7">Phase 7: CLI Entry Points</a></li>
+                <li><a href="#phase-8">Phase 8: Electron GUI</a></li>
+                <li><a href="#phase-9">Phase 9: Grading &amp; Analysis</a></li>
+                <li><a href="#phase-10">Phase 10: Verification &amp; Testing</a></li>
+                <li><a href="#risks">Risks &amp; Mitigations</a></li>
+                <li><a href="#checklist">Final Checklist</a></li>
+            </ol>
+        </div>
+
+        <!-- ═══════════════════════════════════════════════════════════════ -->
+        <!-- SECTION 1: OVERVIEW -->
+        <!-- ═══════════════════════════════════════════════════════════════ -->
+        <section id="overview">
+            <h2>1. Implementation Overview</h2>
+
+            <div class="callout callout-info">
+                <strong>Scope:</strong>
+                <p>4 new files, 12 modified files, ~150 fuzzing scenarios, 0 new dependencies. Pure JavaScript, following existing patterns exactly.</p>
+            </div>
+
+            <table class="matrix-table">
+                <tr><th>Metric</th><th>Value</th></tr>
+                <tr><td>New files</td><td>4 (<code>ldap-packet.js</code>, <code>ldap-scenarios.js</code>, <code>ldap-fuzzer-client.js</code>, <code>ldap-fuzzer-server.js</code>)</td></tr>
+                <tr><td>Modified files</td><td>12 (unified-client/server, main.js, renderer, CLI, agent, well-behaved, grader)</td></tr>
+                <tr><td>Estimated scenarios</td><td>~150 across 12 categories (LA through LL)</td></tr>
+                <tr><td>New npm dependencies</td><td>0 &mdash; BER encoding built from scratch</td></tr>
+                <tr><td>Protocols supported after</td><td>5 (TLS, HTTP/2, QUIC, Raw TCP, <strong>LDAP</strong>)</td></tr>
+                <tr><td>Transport layers</td><td>Plain TCP (389), LDAPS/TLS (636), StartTLS (389&rarr;TLS)</td></tr>
+            </table>
+        </section>
+
+        <!-- ═══════════════════════════════════════════════════════════════ -->
+        <!-- SECTION 2: DEPENDENCY GRAPH -->
+        <!-- ═══════════════════════════════════════════════════════════════ -->
+        <section id="dependency-graph">
+            <h2>2. Dependency Graph</h2>
+
+            <p>Implementation order is dictated by dependencies. Each phase builds on the previous one.</p>
+
+            <div class="diagram-card">
+                <div class="mermaid">
+graph TB
+    P1["Phase 1<br/>ldap-packet.js<br/>(BER encoder)"]
+    P2["Phase 2<br/>ldap-scenarios.js<br/>(scenario definitions)"]
+    P3["Phase 3<br/>ldap-fuzzer-client.js<br/>(client engine)"]
+    P4["Phase 4<br/>ldap-fuzzer-server.js<br/>(AD simulation)"]
+    P5["Phase 5<br/>unified-client/server.js<br/>(routing integration)"]
+    P6["Phase 6<br/>well-behaved-*.js<br/>(Local Target)"]
+    P7["Phase 7<br/>client.js, server.js, cli.js<br/>(CLI support)"]
+    P8["Phase 8<br/>index.html, app.js<br/>(GUI tab)"]
+    P9["Phase 9<br/>grader.js<br/>(response grading)"]
+    P10["Phase 10<br/>Testing &amp; Verification"]
+
+    P1 --> P2
+    P1 --> P3
+    P1 --> P4
+    P2 --> P3
+    P2 --> P4
+    P3 --> P5
+    P4 --> P5
+    P1 --> P6
+    P5 --> P7
+    P5 --> P8
+    P2 --> P7
+    P2 --> P8
+    P3 --> P9
+    P5 --> P10
+    P7 --> P10
+    P8 --> P10
+    P9 --> P10
+
+    style P1 fill:#b45309,color:white,stroke:none
+    style P2 fill:#b45309,color:white,stroke:none
+    style P3 fill:#b45309,color:white,stroke:none
+    style P4 fill:#b45309,color:white,stroke:none
+    style P5 fill:#38bdf8,color:black,stroke:none
+    style P6 fill:#38bdf8,color:black,stroke:none
+    style P7 fill:#059669,color:white,stroke:none
+    style P8 fill:#059669,color:white,stroke:none
+    style P9 fill:#818cf8,color:white,stroke:none
+    style P10 fill:#f472b6,color:black,stroke:none
+                </div>
+            </div>
+        </section>
+
+        <!-- ═══════════════════════════════════════════════════════════════ -->
+        <!-- PHASE 1 -->
+        <!-- ═══════════════════════════════════════════════════════════════ -->
+        <section id="phase-1">
+            <div class="phase-header">
+                <div class="phase-number">1</div>
+                <div class="phase-info">
+                    <h3>Phase 1: BER/ASN.1 Wire Format</h3>
+                    <p><code>lib/ldap-packet.js</code> &mdash; Foundation layer, no dependencies on other new code</p>
+                </div>
+            </div>
+
+            <p>This is the equivalent of <code>record.js</code> + <code>handshake.js</code> for TLS. Every LDAP byte on the wire is built here.</p>
+
+            <h3>Step 1.1: BER Encoding Primitives</h3>
+            <div class="code-block"><span class="cm">// Core TLV functions that everything else builds on</span>
+
+<span class="kw">function</span> <span class="fn">berLength</span>(len) {
+  <span class="cm">// Short form: single byte if len &lt; 128</span>
+  <span class="cm">// Long form: 0x81 XX for len &lt; 256, 0x82 XX XX for len &lt; 65536</span>
+}
+
+<span class="kw">function</span> <span class="fn">berSequence</span>(contents) {
+  <span class="cm">// Tag 0x30 + berLength(contents.length) + contents</span>
+}
+
+<span class="kw">function</span> <span class="fn">berInteger</span>(value) {
+  <span class="cm">// Tag 0x02 + length + signed big-endian bytes</span>
+}
+
+<span class="kw">function</span> <span class="fn">berOctetString</span>(buf) {
+  <span class="cm">// Tag 0x04 + length + raw bytes</span>
+}
+
+<span class="kw">function</span> <span class="fn">berBoolean</span>(val) {
+  <span class="cm">// Tag 0x01 + 0x01 + (0xFF or 0x00)</span>
+}
+
+<span class="kw">function</span> <span class="fn">berEnumerated</span>(val) {
+  <span class="cm">// Tag 0x0A + length + value bytes</span>
+}
+
+<span class="kw">function</span> <span class="fn">berContextTag</span>(n, contents, constructed) {
+  <span class="cm">// constructed: tag = 0xA0 + n   primitive: tag = 0x80 + n</span>
+}
+
+<span class="kw">function</span> <span class="fn">berApplication</span>(n, contents, constructed) {
+  <span class="cm">// constructed: tag = 0x60 + n   primitive: tag = 0x40 + n</span>
+}</div>
+
+            <h3>Step 1.2: LDAP Message Builders</h3>
+            <table class="matrix-table">
+                <tr><th>Function</th><th>Tag</th><th>Key Parameters</th></tr>
+                <tr><td><code>buildBindRequest(msgId, opts)</code></td><td><code>0x60</code></td><td><code>version</code>, <code>dn</code>, <code>password</code>, <code>mechanism</code> (SASL), <code>credentials</code></td></tr>
+                <tr><td><code>buildBindResponse(msgId, resultCode, ...)</code></td><td><code>0x61</code></td><td><code>resultCode</code>, <code>matchedDN</code>, <code>diagnosticMessage</code></td></tr>
+                <tr><td><code>buildUnbindRequest(msgId)</code></td><td><code>0x42</code></td><td>No body</td></tr>
+                <tr><td><code>buildSearchRequest(msgId, opts)</code></td><td><code>0x63</code></td><td><code>baseDN</code>, <code>scope</code>, <code>filter</code>, <code>attributes[]</code>, <code>sizeLimit</code>, <code>timeLimit</code></td></tr>
+                <tr><td><code>buildSearchResultEntry(msgId, dn, attrs)</code></td><td><code>0x64</code></td><td>For AD simulation server</td></tr>
+                <tr><td><code>buildSearchResultDone(msgId, resultCode)</code></td><td><code>0x65</code></td><td>For AD simulation server</td></tr>
+                <tr><td><code>buildModifyRequest(msgId, dn, mods)</code></td><td><code>0x66</code></td><td><code>modifications[]</code> = <code>{op, type, values[]}</code></td></tr>
+                <tr><td><code>buildAddRequest(msgId, dn, attrs)</code></td><td><code>0x68</code></td><td>DN + attribute list</td></tr>
+                <tr><td><code>buildDelRequest(msgId, dn)</code></td><td><code>0x4A</code></td><td>Primitive tag, DN is direct value</td></tr>
+                <tr><td><code>buildCompareRequest(msgId, dn, attr, val)</code></td><td><code>0x6E</code></td><td>Attribute value assertion</td></tr>
+                <tr><td><code>buildAbandonRequest(msgId, abandonId)</code></td><td><code>0x50</code></td><td>Primitive tag, messageID to abandon</td></tr>
+                <tr><td><code>buildExtendedRequest(msgId, oid, value)</code></td><td><code>0x77</code></td><td>OID string + optional value buffer</td></tr>
+            </table>
+
+            <h3>Step 1.3: Search Filter Builder</h3>
+            <div class="code-block"><span class="kw">function</span> <span class="fn">buildFilter</span>(spec) {
+  <span class="cm">// Recursive filter construction</span>
+  <span class="cm">// { present: 'objectClass' }         &rarr; context[7] primitive (0x87)</span>
+  <span class="cm">// { eq: { attr: 'cn', value: 'admin' } }  &rarr; context[3] constructed (0xA3)</span>
+  <span class="cm">// { and: [filter1, filter2] }         &rarr; context[0] constructed (0xA0)</span>
+  <span class="cm">// { or: [filter1, filter2] }          &rarr; context[1] constructed (0xA1)</span>
+  <span class="cm">// { not: filter }                     &rarr; context[2] constructed (0xA2)</span>
+  <span class="cm">// { sub: { attr, initial, any, final } }  &rarr; context[4] (0xA4)</span>
+  <span class="cm">// { gte: { attr, value } }            &rarr; context[5] (0xA5)</span>
+  <span class="cm">// { lte: { attr, value } }            &rarr; context[6] (0xA6)</span>
+  <span class="cm">// { ext: { rule, attr, value, dn } }  &rarr; context[9] (0xA9)</span>
+}</div>
+
+            <h3>Step 1.4: Parser + Fuzz Helpers</h3>
+            <ul class="step-list">
+                <li class="normal">
+                    <span class="step-icon">&#128270;</span>
+                    <div class="step-content">
+                        <h4><code>parseLDAPMessage(buffer)</code></h4>
+                        <p>Minimal parser: extract messageID, protocolOp tag byte, resultCode (for responses), matchedDN, diagnosticMessage, and totalLength (bytes consumed, for TCP framing).</p>
+                    </div>
+                </li>
+                <li class="important">
+                    <span class="step-icon">&#128163;</span>
+                    <div class="step-content">
+                        <h4>Fuzz helpers</h4>
+                        <p><code>berMalformedLength(type)</code> &mdash; 'truncated', 'zero', 'overflow' (0x84 FFFFFFFF), 'indefinite' (0x80 without terminator).<br/>
+                        <code>buildNestedDepthBomb(depth)</code> &mdash; 1000-level nested SEQUENCEs.<br/>
+                        <code>buildOversizeString(size)</code>, <code>buildGarbageMessage(size)</code>, <code>buildPartialMessage(msg, cutAt)</code>.</p>
+                    </div>
+                </li>
+            </ul>
+
+            <h3>Step 1.5: Constants</h3>
+            <div class="code-block"><span class="kw">const</span> LDAP_RESULT = {
+  success: <span class="num">0</span>, operationsError: <span class="num">1</span>, protocolError: <span class="num">2</span>,
+  timeLimitExceeded: <span class="num">3</span>, sizeLimitExceeded: <span class="num">4</span>,
+  authMethodNotSupported: <span class="num">7</span>, strongerAuthRequired: <span class="num">8</span>,
+  saslBindInProgress: <span class="num">14</span>, noSuchAttribute: <span class="num">16</span>,
+  invalidDNSyntax: <span class="num">34</span>, inappropriateAuthentication: <span class="num">48</span>,
+  invalidCredentials: <span class="num">49</span>, insufficientAccessRights: <span class="num">50</span>,
+  busy: <span class="num">51</span>, unavailable: <span class="num">52</span>, unwillingToPerform: <span class="num">53</span>,
+  entryAlreadyExists: <span class="num">68</span>, other: <span class="num">80</span>,
+};
+
+<span class="kw">const</span> LDAP_OID = {
+  StartTLS:       <span class="str">'1.3.6.1.4.1.1466.20037'</span>,
+  PasswordModify: <span class="str">'1.3.6.1.4.1.4203.1.11.1'</span>,
+  WhoAmI:         <span class="str">'1.3.6.1.4.1.4203.1.11.3'</span>,
+  Cancel:         <span class="str">'1.3.6.1.1.8'</span>,
+  <span class="cm">// AD-specific</span>
+  FastBind:       <span class="str">'1.2.840.113556.1.4.1781'</span>,
+  DirSync:        <span class="str">'1.2.840.113556.1.4.841'</span>,
+};</div>
+
+            <div class="callout callout-tip">
+                <strong>Verification:</strong>
+                <p>Hex-compare <code>buildBindRequest(1, { dn: 'cn=admin,dc=test,dc=local', password: 'password' })</code> against a known-good Wireshark LDAP capture. The bytes should match exactly.</p>
+            </div>
+        </section>
+
+        <!-- ═══════════════════════════════════════════════════════════════ -->
+        <!-- PHASE 2 -->
+        <!-- ═══════════════════════════════════════════════════════════════ -->
+        <section id="phase-2">
+            <div class="phase-header">
+                <div class="phase-number">2</div>
+                <div class="phase-info">
+                    <h3>Phase 2: Scenario Definitions</h3>
+                    <p><code>lib/ldap-scenarios.js</code> &mdash; Depends on Phase 1 (uses ldap-packet.js builders)</p>
+                </div>
+            </div>
+
+            <h3>Module Structure</h3>
+            <div class="code-block"><span class="cm">// Exports (same pattern as quic-scenarios.js)</span>
+module.exports = {
+  LDAP_CATEGORIES,                  <span class="cm">// { LA: 'Authentication Attacks', LB: '...', ... }</span>
+  LDAP_CATEGORY_SEVERITY,           <span class="cm">// { LA: 'critical', LB: 'high', ... }</span>
+  LDAP_CATEGORY_DEFAULT_DISABLED,   <span class="cm">// Set(['LK']) -- CVEs opt-in only</span>
+  LDAP_SCENARIOS,                   <span class="cm">// flat array of all scenario objects</span>
+  <span class="fn">getLdapScenario</span>(name),            <span class="cm">// lookup by name string</span>
+  <span class="fn">getLdapScenariosByCategory</span>(cat),   <span class="cm">// filter by category code</span>
+  <span class="fn">listLdapScenarios</span>(),              <span class="cm">// { categories, scenarios: { LA: [...], ... } }</span>
+  <span class="fn">listLdapClientScenarios</span>(),        <span class="cm">// side === 'client' only</span>
+  <span class="fn">listLdapServerScenarios</span>(),        <span class="cm">// side === 'server' only</span>
+};</div>
+
+            <h3>Scenario Object Structure</h3>
+            <div class="code-block">{
+  name: <span class="str">'ldap-simple-bind-valid'</span>,
+  category: <span class="str">'LA'</span>,
+  description: <span class="str">'Standard simple bind to verify baseline authentication'</span>,
+  side: <span class="str">'client'</span>,
+  actions: (opts) => [
+    { type: <span class="str">'send'</span>, data: <span class="fn">buildBindRequest</span>(<span class="num">1</span>, {
+        dn: <span class="str">'cn=admin,dc=test,dc=local'</span>,
+        password: <span class="str">'password'</span>,
+    }), label: <span class="str">'Bind Request (valid creds)'</span> },
+    { type: <span class="str">'recv'</span>, timeout: <span class="num">5000</span> },
+  ],
+  expected: <span class="str">'PASSED'</span>,
+  expectedReason: <span class="str">'Server should accept valid bind credentials'</span>,
+}</div>
+
+            <h3>Category Breakdown with Example Scenarios</h3>
+
+            <table class="matrix-table">
+                <tr><th>Category</th><th>Name</th><th>Severity</th><th>Key Scenarios</th></tr>
+                <tr>
+                    <td><code>LA</code></td>
+                    <td>Authentication Attacks</td>
+                    <td style="color: var(--danger);">critical</td>
+                    <td>Simple bind, anonymous bind, null bind (empty password), SASL/NTLM, oversized password (1MB), DN with null bytes, brute force, version 2 downgrade, unauthenticated bind</td>
+                </tr>
+                <tr>
+                    <td><code>LB</code></td>
+                    <td>Search Filter Injection</td>
+                    <td style="color: #f97316;">high</td>
+                    <td>Wildcard filter, 100-level nested OR, missing closing paren, extensibleMatch with AD memberOf chaining OID, null bytes in value, 64KB filter, substring wildcard injection</td>
+                </tr>
+                <tr>
+                    <td><code>LC</code></td>
+                    <td>BER/ASN.1 Violations</td>
+                    <td style="color: #f97316;">high</td>
+                    <td>Truncated length, indefinite length (0x80) without terminator, length exceeding data, wrong tag bytes, 1000-level depth bomb, negative messageID, constructed OCTET STRING, trailing bytes, message split at mid-tag</td>
+                </tr>
+                <tr>
+                    <td><code>LD</code></td>
+                    <td>Protocol Sequence Violations</td>
+                    <td style="color: var(--warning);">medium</td>
+                    <td>Search without bind, modify without bind, request after unbind, duplicate messageIDs, client sends BindResponse (role reversal), messageID = 0</td>
+                </tr>
+                <tr>
+                    <td><code>LE</code></td>
+                    <td>Resource Exhaustion</td>
+                    <td style="color: #f97316;">high</td>
+                    <td>1000 concurrent binds, unlimited search (sizeLimit=0), paged results page-size=1, request all attributes (*), 10MB single message, N connections with no data</td>
+                </tr>
+                <tr>
+                    <td><code>LF</code></td>
+                    <td>LDAPS/StartTLS Transport</td>
+                    <td style="color: var(--danger);">critical</td>
+                    <td>LDAPS on 636, StartTLS on 389, downgrade after TLS, double StartTLS, plaintext on TLS port, self-signed cert, expired cert, channel binding, TLS renegotiation</td>
+                </tr>
+                <tr>
+                    <td><code>LG</code></td>
+                    <td>AD-Specific Attacks</td>
+                    <td style="color: var(--danger);">critical</td>
+                    <td>SPN enumeration (Kerberoasting), AS-REP roasting query, LDAP signing bypass, ntSecurityDescriptor read, delegation abuse, unicodePwd modify, MachineAccountQuota, GPO link enum, gMSA password read, LAPS password read, DCShadow checks</td>
+                </tr>
+                <tr>
+                    <td><code>LH</code></td>
+                    <td>Operation Fuzzing</td>
+                    <td style="color: var(--warning);">medium</td>
+                    <td>Add with missing objectClass, delete non-existent DN, invalid modify op code, ModifyDN with special chars, compare non-existent attr, empty modification list</td>
+                </tr>
+                <tr>
+                    <td><code>LI</code></td>
+                    <td>Extended Operations</td>
+                    <td style="color: var(--warning);">medium</td>
+                    <td>WhoAmI, PasswordModify, Cancel non-existent op, unknown OID, AD FastBind, oversized extended value</td>
+                </tr>
+                <tr>
+                    <td><code>LJ</code></td>
+                    <td>Server-to-Client Attacks</td>
+                    <td style="color: #f97316;">high</td>
+                    <td>Malformed resultCode, referral injection, oversized entries (1MB), infinite SearchResultEntry stream, wrong messageID in response, BER depth bomb in response</td>
+                </tr>
+                <tr>
+                    <td><code>LK</code></td>
+                    <td>CVE Reproductions</td>
+                    <td style="color: var(--danger);">critical</td>
+                    <td>Zerologon LDAP vector, noPac (sAMAccountName spoofing), Log4Shell JNDI:LDAP, NTLM MIC bypass, PetitPotam LDAP coercion</td>
+                </tr>
+                <tr>
+                    <td><code>LL</code></td>
+                    <td>Connectivity &amp; Baseline</td>
+                    <td style="color: var(--primary);">info</td>
+                    <td>RootDSE query, schema discovery, full bind/search/unbind lifecycle, supportedControl enumeration</td>
+                </tr>
+            </table>
+        </section>
+
+        <!-- ═══════════════════════════════════════════════════════════════ -->
+        <!-- PHASE 3 -->
+        <!-- ═══════════════════════════════════════════════════════════════ -->
+        <section id="phase-3">
+            <div class="phase-header">
+                <div class="phase-number">3</div>
+                <div class="phase-info">
+                    <h3>Phase 3: Client Engine</h3>
+                    <p><code>lib/ldap-fuzzer-client.js</code> &mdash; Depends on Phase 1 (ldap-packet.js)</p>
+                </div>
+            </div>
+
+            <h3>Class: <code>LdapFuzzerClient</code></h3>
+            <div class="code-block"><span class="kw">class</span> <span class="fn">LdapFuzzerClient</span> {
+  <span class="fn">constructor</span>(opts) {
+    <span class="kw">this</span>.host    = opts.host    || <span class="str">'localhost'</span>;
+    <span class="kw">this</span>.port    = opts.port    || <span class="num">389</span>;    <span class="cm">// 389 for LDAP, 636 for LDAPS</span>
+    <span class="kw">this</span>.timeout = opts.timeout || <span class="num">5000</span>;
+    <span class="kw">this</span>.delay   = opts.delay   || <span class="num">100</span>;
+    <span class="kw">this</span>.logger  = opts.logger;
+  }
+
+  <span class="cm">// Main execution method &mdash; same contract as FuzzerClient.runScenario()</span>
+  <span class="kw">async</span> <span class="fn">runScenario</span>(scenario) { ... }
+  <span class="kw">async</span> <span class="fn">runScenarios</span>(scenarios) { ... }
+
+  <span class="cm">// Connection methods</span>
+  <span class="fn">_connectLDAP</span>()     { <span class="cm">/* net.connect(port, host) */</span> }
+  <span class="fn">_connectLDAPS</span>()    { <span class="cm">/* tls.connect({ port: 636, host, ... }) */</span> }
+  <span class="fn">_connectStartTLS</span>() { <span class="cm">/* plain connect, send ExtReq, tls.connect({socket}) */</span> }
+
+  <span class="cm">// Response handling</span>
+  <span class="fn">_describeLdapResponse</span>(data) {
+    <span class="cm">// Parse BER, return human-readable string:</span>
+    <span class="cm">// "BindResponse(success)", "BindResponse(invalidCredentials)"</span>
+    <span class="cm">// "SearchResultDone(noSuchObject)", "protocolError"</span>
+  }
+}</div>
+
+            <h3>Action Types</h3>
+            <table class="matrix-table">
+                <tr><th>Action</th><th>Parameters</th><th>Behavior</th></tr>
+                <tr><td><code>send</code></td><td><code>data: Buffer</code>, <code>label: string</code></td><td>Write BER bytes to TCP socket</td></tr>
+                <tr><td><code>recv</code></td><td><code>timeout: ms</code></td><td>Read response from socket, parse LDAP message</td></tr>
+                <tr><td><code>delay</code></td><td><code>ms: number</code></td><td>Sleep</td></tr>
+                <tr><td><code>connect</code></td><td><code>mode: 'plain'|'tls'|'starttls'</code></td><td>Establish connection with specified transport</td></tr>
+                <tr><td><code>starttls</code></td><td>&mdash;</td><td>Send StartTLS ExtendedRequest + upgrade socket</td></tr>
+                <tr><td><code>close</code></td><td>&mdash;</td><td>Close TCP connection</td></tr>
+            </table>
+
+            <div class="callout callout-warn">
+                <strong>TCP Framing:</strong>
+                <p>Unlike QUIC (one UDP datagram = one message), LDAP messages can split across TCP segments. The client must accumulate data and parse BER length prefixes to know when a complete message has arrived. Use <code>parseLDAPMessage(buffer).totalLength</code> to determine framing boundaries.</p>
+            </div>
+        </section>
+
+        <!-- ═══════════════════════════════════════════════════════════════ -->
+        <!-- PHASE 4 -->
+        <!-- ═══════════════════════════════════════════════════════════════ -->
+        <section id="phase-4">
+            <div class="phase-header">
+                <div class="phase-number">4</div>
+                <div class="phase-info">
+                    <h3>Phase 4: AD Simulation Server</h3>
+                    <p><code>lib/ldap-fuzzer-server.js</code> &mdash; Depends on Phase 1 (ldap-packet.js)</p>
+                </div>
+            </div>
+
+            <h3>Class: <code>LdapFuzzerServer</code></h3>
+            <div class="code-block"><span class="kw">class</span> <span class="fn">LdapFuzzerServer</span> {
+  <span class="fn">constructor</span>(opts) {
+    <span class="kw">this</span>.port     = opts.port     || <span class="num">389</span>;
+    <span class="kw">this</span>.tlsPort  = opts.tlsPort  || <span class="num">636</span>;
+    <span class="kw">this</span>.hostname = opts.hostname || <span class="str">'localhost'</span>;
+    <span class="kw">this</span>.adConfig = <span class="kw">this</span>.<span class="fn">_defaultADConfig</span>();
+  }
+
+  <span class="kw">async</span> <span class="fn">start</span>()   { <span class="cm">/* net.createServer(), listen on port 389 */</span> }
+  <span class="kw">async</span> <span class="fn">startTLS</span>() { <span class="cm">/* tls.createServer(), listen on port 636 */</span> }
+
+  <span class="cm">// Connection handler &mdash; parses incoming BER, dispatches to operation handler</span>
+  <span class="fn">_handleConnection</span>(socket) { ... }
+
+  <span class="cm">// Operation handlers</span>
+  <span class="fn">_handleBind</span>(socket, msgId, body)    { <span class="cm">/* check credentials, respond */</span> }
+  <span class="fn">_handleSearch</span>(socket, msgId, body)  { <span class="cm">/* query in-memory entries */</span> }
+  <span class="fn">_handleSearchRootDSE</span>(socket, msgId) { <span class="cm">/* return AD RootDSE */</span> }
+  <span class="fn">_handleModify</span>(socket, msgId, body)  { <span class="cm">/* log + respond */</span> }
+  <span class="fn">_handleAdd</span>(socket, msgId, body)     { <span class="cm">/* log + respond */</span> }
+  <span class="fn">_handleDelete</span>(socket, msgId, body)  { <span class="cm">/* log + respond */</span> }
+  <span class="fn">_handleExtended</span>(socket, msgId, body){ <span class="cm">/* StartTLS, WhoAmI, etc. */</span> }
+
+  <span class="cm">// For fuzz scenarios (category LJ &mdash; server-to-client attacks)</span>
+  <span class="kw">async</span> <span class="fn">runScenario</span>(scenario) { <span class="cm">/* execute serverHandler or actions */</span> }
+}</div>
+
+            <h3>AD Simulation Fidelity</h3>
+            <div class="callout callout-info">
+                <strong>Design principle:</strong>
+                <p>The server does <strong>not</strong> implement full Active Directory. It provides just enough to: (1) accept/reject binds, (2) return AD-identifying RootDSE, (3) serve simulated entries for SPN/LAPS/gMSA queries, (4) handle StartTLS upgrade. Complex behaviors like replication, Kerberos, or group policy processing return <code>unwillingToPerform</code>.</p>
+            </div>
+        </section>
+
+        <!-- ═══════════════════════════════════════════════════════════════ -->
+        <!-- PHASE 5 -->
+        <!-- ═══════════════════════════════════════════════════════════════ -->
+        <section id="phase-5">
+            <div class="phase-header">
+                <div class="phase-number">5</div>
+                <div class="phase-info">
+                    <h3>Phase 5: Core Integration</h3>
+                    <p><code>unified-client.js</code> + <code>unified-server.js</code> + <code>main.js</code> + <code>agent.js</code></p>
+                </div>
+            </div>
+
+            <h3>Changes per File</h3>
+            <div class="timeline">
+                <div class="timeline-item">
+                    <h4>unified-client.js</h4>
+                    <p>Add <code>isLdapScenario()</code> detection function. Update <code>isH2Scenario()</code> to exclude LDAP. Add LDAP dispatch in <code>runScenario()</code>.</p>
+                    <span class="file-tag">+ isLdapScenario()</span>
+                    <span class="file-tag">~ isH2Scenario() fix</span>
+                    <span class="file-tag">+ LDAP dispatch</span>
+                </div>
+                <div class="timeline-item">
+                    <h4>unified-server.js</h4>
+                    <p>Same <code>isLdapScenario()</code> + <code>isH2Scenario()</code> fix. Add <code>_runLdapScenario()</code> method and <code>startLdap()</code>. Add cleanup in <code>abort()</code>.</p>
+                    <span class="file-tag">+ _runLdapScenario()</span>
+                    <span class="file-tag">+ startLdap()</span>
+                    <span class="file-tag">~ abort() cleanup</span>
+                </div>
+                <div class="timeline-item">
+                    <h4>main.js (Electron)</h4>
+                    <p>Import LDAP scenario functions. Add LDAP block to <code>list-scenarios</code> IPC handler. Add <code>getLdapScenario</code> to <code>run-fuzzer</code> lookup chain. Add LDAP server mode handling.</p>
+                    <span class="file-tag">+ import ldap-scenarios</span>
+                    <span class="file-tag">~ list-scenarios IPC</span>
+                    <span class="file-tag">~ run-fuzzer lookup</span>
+                    <span class="file-tag">+ LDAP server mode</span>
+                </div>
+                <div class="timeline-item">
+                    <h4>agent.js (Distributed)</h4>
+                    <p>Add <code>getLdapScenario</code> to the scenario resolution chain in <code>handleConfigure()</code>.</p>
+                    <span class="file-tag">+ getLdapScenario in lookup</span>
+                </div>
+            </div>
+
+            <div class="callout callout-danger">
+                <strong>Critical: <code>isH2Scenario()</code> Must Be Updated</strong>
+                <p>Without this fix, all LDAP scenarios (category L*) will be misrouted to the HTTP/2 engine. This is the single most important correctness concern. The fix is a one-line addition: <code>&amp;&amp; !isLdapScenario(scenario)</code>.</p>
+            </div>
+        </section>
+
+        <!-- ═══════════════════════════════════════════════════════════════ -->
+        <!-- PHASE 6 -->
+        <!-- ═══════════════════════════════════════════════════════════════ -->
+        <section id="phase-6">
+            <div class="phase-header">
+                <div class="phase-number">6</div>
+                <div class="phase-info">
+                    <h3>Phase 6: Local Target Support</h3>
+                    <p><code>well-behaved-server.js</code> + <code>well-behaved-client.js</code></p>
+                </div>
+            </div>
+
+            <p>When "Local Target" is enabled in the GUI, the fuzzer spawns a compliant counterpart:</p>
+            <ul>
+                <li><strong>Client mode fuzzing:</strong> <code>well-behaved-server.js</code> starts a minimal LDAP server that accepts bind and returns basic search results.</li>
+                <li><strong>Server mode fuzzing:</strong> <code>well-behaved-client.js</code> connects and sends an anonymous bind to trigger the fuzzed server's response path.</li>
+            </ul>
+
+            <h3>New Methods</h3>
+            <table class="matrix-table">
+                <tr><th>File</th><th>Method</th><th>Behavior</th></tr>
+                <tr>
+                    <td><code>well-behaved-server.js</code></td>
+                    <td><code>startLdap()</code></td>
+                    <td>Create <code>net.Server</code>, parse incoming LDAP messages, respond with BindResponse(success) and basic SearchResultEntry/Done.</td>
+                </tr>
+                <tr>
+                    <td><code>well-behaved-client.js</code></td>
+                    <td><code>connectLdap()</code></td>
+                    <td>Open TCP to server, send anonymous BindRequest, wait for response. Retry on ECONNREFUSED (server may still be starting).</td>
+                </tr>
+            </table>
+        </section>
+
+        <!-- ═══════════════════════════════════════════════════════════════ -->
+        <!-- PHASE 7 -->
+        <!-- ═══════════════════════════════════════════════════════════════ -->
+        <section id="phase-7">
+            <div class="phase-header">
+                <div class="phase-number">7</div>
+                <div class="phase-info">
+                    <h3>Phase 7: CLI Entry Points</h3>
+                    <p><code>client.js</code> + <code>server.js</code> + <code>cli.js</code></p>
+                </div>
+            </div>
+
+            <h3>CLI Usage After Implementation</h3>
+            <div class="code-block"><span class="cm"># Run all LDAP client scenarios against a target</span>
+node client.js ad-server.lab 389 --protocol ldap --scenario all
+
+<span class="cm"># Run a specific category (AD attacks)</span>
+node client.js ad-server.lab 389 --protocol ldap --category LG
+
+<span class="cm"># Run LDAPS scenarios on port 636</span>
+node client.js ad-server.lab 636 --protocol ldap --category LF
+
+<span class="cm"># Start fuzzing server (AD simulation)</span>
+node server.js 10389 --protocol ldap --scenario all
+
+<span class="cm"># CLI unified entry point</span>
+node cli.js client ad-server.lab 389 --protocol ldap --scenario all
+node cli.js server 10389 --protocol ldap --scenario all
+node cli.js list --protocol ldap</div>
+
+            <h3>Changes per File</h3>
+            <table class="matrix-table">
+                <tr><th>File</th><th>Changes</th></tr>
+                <tr>
+                    <td><code>client.js</code></td>
+                    <td>Import LDAP scenario functions. Add <code>--protocol ldap</code> branches. Update USAGE string.</td>
+                </tr>
+                <tr>
+                    <td><code>server.js</code></td>
+                    <td>Same as client.js for server-side scenarios.</td>
+                </tr>
+                <tr>
+                    <td><code>cli.js</code></td>
+                    <td>Import LDAP functions. Add LDAP to <code>list</code> command output. Add LDAP branches in scenario resolution.</td>
+                </tr>
+            </table>
+        </section>
+
+        <!-- ═══════════════════════════════════════════════════════════════ -->
+        <!-- PHASE 8 -->
+        <!-- ═══════════════════════════════════════════════════════════════ -->
+        <section id="phase-8">
+            <div class="phase-header">
+                <div class="phase-number">8</div>
+                <div class="phase-info">
+                    <h3>Phase 8: Electron GUI</h3>
+                    <p><code>renderer/index.html</code> + <code>renderer/app.js</code></p>
+                </div>
+            </div>
+
+            <h3>Tab Addition</h3>
+            <div class="code-block"><span class="cm">&lt;!-- renderer/index.html &mdash; add LDAP tab button --&gt;</span>
+&lt;div class="protocol-tabs"&gt;
+  &lt;button class="tab-btn" id="tlsTabBtn"&gt;TLS&lt;/button&gt;
+  &lt;button class="tab-btn" id="http2TabBtn"&gt;HTTP/2&lt;/button&gt;
+  &lt;button class="tab-btn" id="quicTabBtn"&gt;QUIC&lt;/button&gt;
+  &lt;button class="tab-btn" id="tcpTabBtn"&gt;Raw TCP&lt;/button&gt;
+  <span class="tag">&lt;button class="tab-btn" id="ldapTabBtn"&gt;LDAP&lt;/button&gt;</span>  <span class="cm">&lt;!-- NEW --&gt;</span>
+&lt;/div&gt;</div>
+
+            <h3>app.js Changes</h3>
+            <ul class="step-list">
+                <li class="normal">
+                    <span class="step-icon">1</span>
+                    <div class="step-content">
+                        <h4>Add state variables</h4>
+                        <p><code>allLdapScenarios</code>, <code>ldapCategories</code>, <code>ldapDefaultDisabled</code></p>
+                    </div>
+                </li>
+                <li class="normal">
+                    <span class="step-icon">2</span>
+                    <div class="step-content">
+                        <h4>Add tab click handler</h4>
+                        <p>Set <code>activeProtocol = 'ldap'</code>, update active classes, call <code>filterScenariosBySide()</code>. Default port changes to 389.</p>
+                    </div>
+                </li>
+                <li class="normal">
+                    <span class="step-icon">3</span>
+                    <div class="step-content">
+                        <h4>Update <code>loadScenarios()</code></h4>
+                        <p>Populate LDAP state from IPC response data.</p>
+                    </div>
+                </li>
+                <li class="normal">
+                    <span class="step-icon">4</span>
+                    <div class="step-content">
+                        <h4>Update <code>renderAllScenarios()</code></h4>
+                        <p>Add LDAP branch that iterates <code>ldapCategories</code> and builds category groups.</p>
+                    </div>
+                </li>
+                <li class="normal">
+                    <span class="step-icon">5</span>
+                    <div class="step-content">
+                        <h4>Update other tab handlers</h4>
+                        <p>Each existing tab click handler must add <code>ldapTabBtn.classList.remove('active')</code>.</p>
+                    </div>
+                </li>
+            </ul>
+        </section>
+
+        <!-- ═══════════════════════════════════════════════════════════════ -->
+        <!-- PHASE 9 -->
+        <!-- ═══════════════════════════════════════════════════════════════ -->
+        <section id="phase-9">
+            <div class="phase-header">
+                <div class="phase-number">9</div>
+                <div class="phase-info">
+                    <h3>Phase 9: Grading &amp; Analysis</h3>
+                    <p><code>lib/grader.js</code></p>
+                </div>
+            </div>
+
+            <h3>LDAP Response Classification</h3>
+            <p>Add LDAP-specific patterns to <code>classifyBehavior()</code>:</p>
+            <div class="code-block"><span class="cm">// Add to classifyBehavior() in grader.js:</span>
+
+<span class="cm">// LDAP acceptance signals</span>
+<span class="kw">if</span> (<span class="fn">/BindResponse\(success\)/i</span>.test(r)) <span class="kw">return</span> <span class="str">'accepted'</span>;
+<span class="kw">if</span> (<span class="fn">/SearchResultDone\(success\)/i</span>.test(r)) <span class="kw">return</span> <span class="str">'accepted'</span>;
+<span class="kw">if</span> (<span class="fn">/ModifyResponse\(success\)/i</span>.test(r)) <span class="kw">return</span> <span class="str">'accepted'</span>;
+
+<span class="cm">// LDAP rejection signals</span>
+<span class="kw">if</span> (<span class="fn">/BindResponse\(invalidCredentials\)/i</span>.test(r)) <span class="kw">return</span> <span class="str">'rejected'</span>;
+<span class="kw">if</span> (<span class="fn">/protocolError/i</span>.test(r)) <span class="kw">return</span> <span class="str">'rejected'</span>;
+<span class="kw">if</span> (<span class="fn">/unwillingToPerform/i</span>.test(r)) <span class="kw">return</span> <span class="str">'rejected'</span>;
+<span class="kw">if</span> (<span class="fn">/insufficientAccessRights/i</span>.test(r)) <span class="kw">return</span> <span class="str">'rejected'</span>;
+<span class="kw">if</span> (<span class="fn">/strongerAuthRequired/i</span>.test(r)) <span class="kw">return</span> <span class="str">'rejected'</span>;</div>
+        </section>
+
+        <!-- ═══════════════════════════════════════════════════════════════ -->
+        <!-- PHASE 10 -->
+        <!-- ═══════════════════════════════════════════════════════════════ -->
+        <section id="phase-10">
+            <div class="phase-header">
+                <div class="phase-number">10</div>
+                <div class="phase-info">
+                    <h3>Phase 10: Verification &amp; Testing</h3>
+                    <p>End-to-end validation across all modes</p>
+                </div>
+            </div>
+
+            <h3>Test Matrix</h3>
+            <table class="matrix-table">
+                <tr><th>Test</th><th>Command / Steps</th><th>Expected Result</th></tr>
+                <tr>
+                    <td>BER encoding correctness</td>
+                    <td>Hex-compare <code>buildBindRequest()</code> output against Wireshark capture</td>
+                    <td>Byte-identical to reference</td>
+                </tr>
+                <tr>
+                    <td>Local mode (CLI)</td>
+                    <td><code>node cli.js client localhost 10389 --protocol ldap --scenario all</code> with Local Target</td>
+                    <td>All baseline scenarios PASS, fuzz scenarios get verdicts</td>
+                </tr>
+                <tr>
+                    <td>Against real AD</td>
+                    <td><code>node client.js ad-server.lab 389 --protocol ldap --category LG</code></td>
+                    <td>AD-specific scenarios execute and get graded</td>
+                </tr>
+                <tr>
+                    <td>Server mode</td>
+                    <td><code>node server.js 10389 --protocol ldap --scenario all</code> + connect with <code>ldapsearch</code></td>
+                    <td>Server-to-client attack scenarios execute</td>
+                </tr>
+                <tr>
+                    <td>Electron GUI</td>
+                    <td>Launch GUI, select LDAP tab, enable Local Target, select all, click Run</td>
+                    <td>Scenarios render, results stream, grade displayed</td>
+                </tr>
+                <tr>
+                    <td>Cross-protocol regression</td>
+                    <td>Run existing TLS/H2/QUIC/TCP scenarios after changes</td>
+                    <td>All existing scenarios still work (isH2Scenario fix verified)</td>
+                </tr>
+                <tr>
+                    <td>PCAP capture</td>
+                    <td><code>node cli.js client localhost 389 --protocol ldap --scenario ldap-simple-bind-valid --pcap ldap.pcap</code></td>
+                    <td>Wireshark decodes LDAP protocol correctly from PCAP</td>
+                </tr>
+                <tr>
+                    <td>LDAPS transport</td>
+                    <td>Run LF category scenarios against LDAPS port 636</td>
+                    <td>TLS handshake + LDAP within encrypted channel</td>
+                </tr>
+            </table>
+        </section>
+
+        <!-- ═══════════════════════════════════════════════════════════════ -->
+        <!-- RISKS -->
+        <!-- ═══════════════════════════════════════════════════════════════ -->
+        <section id="risks">
+            <h2>11. Risks &amp; Mitigations</h2>
+
+            <table class="matrix-table risk-table">
+                <tr><th>Risk</th><th>Severity</th><th>Mitigation</th></tr>
+                <tr>
+                    <td><code>isH2Scenario()</code> not updated &mdash; LDAP scenarios route to HTTP/2 engine</td>
+                    <td class="risk-high">HIGH</td>
+                    <td>Add <code>&amp;&amp; !isLdapScenario(scenario)</code> to both unified-client.js and unified-server.js. Test with a single LDAP scenario before bulk integration.</td>
+                </tr>
+                <tr>
+                    <td>BER framing over TCP &mdash; messages split across segments</td>
+                    <td class="risk-medium">MEDIUM</td>
+                    <td>Accumulate data in buffer, use BER length prefix to detect complete messages. Same pattern as TLS record framing in <code>parseRecords()</code>.</td>
+                </tr>
+                <tr>
+                    <td>StartTLS socket upgrade fails</td>
+                    <td class="risk-medium">MEDIUM</td>
+                    <td>Use Node.js <code>tls.connect({ socket: existingSocket })</code> which is the standard approach. Test against OpenLDAP with StartTLS first.</td>
+                </tr>
+                <tr>
+                    <td>AD simulation not realistic enough</td>
+                    <td class="risk-low">LOW</td>
+                    <td>Focus on RootDSE fidelity (OIDs, capabilities) and key entries (SPNs, LAPS). Iteratively add entries as needed. Complex features return <code>unwillingToPerform</code>.</td>
+                </tr>
+                <tr>
+                    <td>Category collision with future protocols</td>
+                    <td class="risk-low">LOW</td>
+                    <td>L* prefix is unique. Document in architecture.html that L is reserved for LDAP.</td>
+                </tr>
+            </table>
+        </section>
+
+        <!-- ═══════════════════════════════════════════════════════════════ -->
+        <!-- CHECKLIST -->
+        <!-- ═══════════════════════════════════════════════════════════════ -->
+        <section id="checklist">
+            <h2>12. Final Checklist</h2>
+
+            <h3>New Files</h3>
+            <ul class="checklist">
+                <li><code>lib/ldap-packet.js</code> &mdash; BER primitives + all LDAP message builders + parser + fuzz helpers</li>
+                <li><code>lib/ldap-scenarios.js</code> &mdash; 12 categories (LA-LL), ~150 scenarios, all exports</li>
+                <li><code>lib/ldap-fuzzer-client.js</code> &mdash; TCP client engine with plain/TLS/StartTLS support</li>
+                <li><code>lib/ldap-fuzzer-server.js</code> &mdash; AD simulation server with in-memory directory</li>
+            </ul>
+
+            <h3>Modified Files</h3>
+            <ul class="checklist">
+                <li><code>lib/unified-client.js</code> &mdash; isLdapScenario() + isH2Scenario() fix + LDAP dispatch</li>
+                <li><code>lib/unified-server.js</code> &mdash; isLdapScenario() + isH2Scenario() fix + _runLdapScenario() + startLdap()</li>
+                <li><code>main.js</code> &mdash; LDAP in list-scenarios IPC + run-fuzzer lookup + server mode</li>
+                <li><code>renderer/index.html</code> &mdash; LDAP tab button</li>
+                <li><code>renderer/app.js</code> &mdash; LDAP tab handler + state + rendering</li>
+                <li><code>client.js</code> &mdash; --protocol ldap support</li>
+                <li><code>server.js</code> &mdash; --protocol ldap support</li>
+                <li><code>cli.js</code> &mdash; LDAP in list/client/server commands</li>
+                <li><code>lib/agent.js</code> &mdash; getLdapScenario in resolution chain</li>
+                <li><code>lib/well-behaved-server.js</code> &mdash; startLdap() for Local Target</li>
+                <li><code>lib/well-behaved-client.js</code> &mdash; connectLdap() for Local Target</li>
+                <li><code>lib/grader.js</code> &mdash; LDAP response patterns in classifyBehavior()</li>
+            </ul>
+
+            <h3>Verification</h3>
+            <ul class="checklist">
+                <li>BER encoding matches Wireshark reference captures</li>
+                <li>Local mode: all scenarios execute and get graded</li>
+                <li>LDAP tab appears in GUI with all 12 categories</li>
+                <li>CLI: <code>--protocol ldap</code> works for client, server, and list commands</li>
+                <li>Cross-protocol regression: TLS/H2/QUIC/TCP scenarios unaffected</li>
+                <li>PCAP capture: Wireshark decodes LDAP correctly</li>
+                <li>StartTLS upgrade works on port 389</li>
+                <li>LDAPS works on port 636</li>
+            </ul>
+        </section>
+
+        <div class="footer">
+            <p>LDAP Protocol Fuzzer &mdash; Implementation Plan &mdash; March 2026</p>
+        </div>
+    </div>
+</body>
+</html>

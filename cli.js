@@ -11,6 +11,7 @@ const { listScenarios, getScenario, getScenariosByCategory, getClientScenarios, 
 const { listHttp2Scenarios, getHttp2Scenario, getHttp2ScenariosByCategory, listHttp2ClientScenarios, listHttp2ServerScenarios } = require('./lib/http2-scenarios');
 const { listQuicScenarios, getQuicScenario, getQuicScenariosByCategory, listQuicClientScenarios, listQuicServerScenarios } = require('./lib/quic-scenarios');
 const { getTcpScenario, getTcpScenariosByCategory, getTcpClientScenarios, getTcpServerScenarios, listTcpScenarios, TCP_CATEGORIES } = require('./lib/tcp-scenarios');
+const { getLdapScenario, getLdapScenariosByCategory, listLdapScenarios, listLdapClientScenarios, listLdapServerScenarios, LDAP_CATEGORIES, LDAP_CATEGORY_DEFAULT_DISABLED } = require('./lib/ldap/scenarios');
 const { isRawAvailable } = require('./lib/raw-tcp');
 const { generateServerCert } = require('./lib/cert-gen');
 
@@ -127,6 +128,19 @@ async function main() {
       }
       console.log('');
     }
+
+    // LDAP scenarios
+    const ldapGroups = listLdapScenarios();
+    console.log('  \x1b[1m\x1b[33mLDAP Scenarios\x1b[0m\n');
+    for (const [cat, items] of Object.entries(ldapGroups.scenarios)) {
+      const disabledNote = LDAP_CATEGORY_DEFAULT_DISABLED.has(cat) ? ' \x1b[33m[opt-in]\x1b[0m' : '';
+      console.log(`  \x1b[1m\x1b[35m${cat}: ${ldapGroups.categories[cat]}\x1b[0m (${items.length} scenarios)${disabledNote}`);
+      for (const s of items) {
+        const side = s.side === 'client' ? '\x1b[36mclient\x1b[0m' : '\x1b[33mserver\x1b[0m';
+        console.log(`    ${s.name.padEnd(50)} [${side}] \x1b[90m${s.description}\x1b[0m`);
+      }
+      console.log('');
+    }
     process.exit(0);
   }
 
@@ -159,6 +173,7 @@ async function main() {
       if (useRawTcp) scenarios = getTcpScenariosByCategory(args.category);
       else if (protocol === 'h2') scenarios = getHttp2ScenariosByCategory(args.category);
       else if (protocol === 'quic') scenarios = getQuicScenariosByCategory(args.category);
+      else if (protocol === 'ldap') scenarios = getLdapScenariosByCategory(args.category);
       else scenarios = getScenariosByCategory(args.category);
 
       scenarios = scenarios.filter(s => s.side === 'client');
@@ -173,6 +188,8 @@ async function main() {
         scenarios = listHttp2ClientScenarios();
       } else if (protocol === 'quic') {
         scenarios = listQuicClientScenarios();
+      } else if (protocol === 'ldap') {
+        scenarios = listLdapClientScenarios().filter(s => !LDAP_CATEGORY_DEFAULT_DISABLED.has(s.category));
       } else {
         scenarios = getClientScenarios().filter(s => !CATEGORY_DEFAULT_DISABLED.has(s.category));
       }
@@ -185,8 +202,9 @@ async function main() {
       if (useRawTcp) s = getTcpScenario(args.scenario);
       else if (protocol === 'h2') s = getHttp2Scenario(args.scenario);
       else if (protocol === 'quic') s = getQuicScenario(args.scenario);
-      
-      if (!s) s = getScenario(args.scenario);
+      else if (protocol === 'ldap') s = getLdapScenario(args.scenario);
+
+      if (!s) s = getLdapScenario(args.scenario) || getScenario(args.scenario);
 
       if (!s) {
         console.error(`Unknown scenario: ${args.scenario}`);
@@ -269,6 +287,7 @@ async function main() {
       if (useRawTcp) scenarios = getTcpScenariosByCategory(args.category);
       else if (protocol === 'h2') scenarios = getHttp2ScenariosByCategory(args.category);
       else if (protocol === 'quic') scenarios = getQuicScenariosByCategory(args.category);
+      else if (protocol === 'ldap') scenarios = getLdapScenariosByCategory(args.category);
       else scenarios = getScenariosByCategory(args.category);
 
       scenarios = scenarios.filter(s => s.side === 'server');
@@ -279,6 +298,8 @@ async function main() {
         scenarios = listHttp2ServerScenarios();
       } else if (protocol === 'quic') {
         scenarios = listQuicServerScenarios();
+      } else if (protocol === 'ldap') {
+        scenarios = listLdapServerScenarios().filter(s => !LDAP_CATEGORY_DEFAULT_DISABLED.has(s.category));
       } else {
         scenarios = getServerScenarios().filter(s => !CATEGORY_DEFAULT_DISABLED.has(s.category));
       }
@@ -291,8 +312,9 @@ async function main() {
       if (useRawTcp) s = getTcpScenario(args.scenario);
       else if (protocol === 'h2') s = getHttp2Scenario(args.scenario);
       else if (protocol === 'quic') s = getQuicScenario(args.scenario);
-      
-      if (!s) s = getScenario(args.scenario);
+      else if (protocol === 'ldap') s = getLdapScenario(args.scenario);
+
+      if (!s) s = getLdapScenario(args.scenario) || getScenario(args.scenario);
 
       if (!s) {
         console.error(`Unknown scenario: ${args.scenario}`);

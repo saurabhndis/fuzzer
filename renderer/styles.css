@@ -1065,6 +1065,42 @@ body {
   color: #c4b5fd;
 }
 
+/* LDAP Styles */
+.tab-btn[data-protocol="ldap"].active {
+  background: #1a4731;
+  color: #6ee7b7;
+}
+
+.side-tag.ldap-tag {
+  background: rgba(110, 231, 183, 0.15);
+  color: #6ee7b7;
+}
+
+.ldap-server-info {
+  border-color: #059669 !important;
+}
+.ldap-server-info .h2-server-title {
+  color: #6ee7b7;
+}
+
+/* LDAP structured packet display */
+.hex-dump.ldap-structured {
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-size: 11px;
+  line-height: 1.6;
+  color: #d1d5db;
+  padding: 6px 10px;
+  background: rgba(6, 95, 70, 0.1);
+  border-left: 2px solid #065f46;
+}
+.ldap-msgid {
+  color: #9ca3af;
+}
+.ldap-op {
+  color: #6ee7b7;
+  font-weight: 600;
+}
+
 /* Unavailable Scenarios (Missing Raw Cap) */
 .scenario-item.unavailable {
   opacity: 0.5;
