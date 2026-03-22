@@ -33,6 +33,7 @@ const USAGE = `
     --verbose               Show hex dumps of all packets
     --json                  Output results as JSON
     --pcap <file.pcap>      Record packets to PCAP file
+    --merge-pcap            Merge all scenarios into a single PCAP file
     --no-baseline           Skip OpenSSL/baseline comparison testing
 
   Examples:
@@ -48,7 +49,7 @@ function parseArgs(argv) {
   for (let i = 0; i < argv.length; i++) {
     if (argv[i].startsWith('--')) {
       const key = argv[i].slice(2);
-      if (key === 'verbose' || key === 'json') {
+      if (key === 'verbose' || key === 'json' || key === 'merge-pcap') {
         args[key] = true;
       } else if (key === 'no-baseline') {
         args.baseline = false;
@@ -148,6 +149,7 @@ async function main() {
   const delay = parseInt(args.delay) || 100;
   const timeout = parseInt(args.timeout) || 5000;
   const pcapFile = args.pcap || null;
+  const mergePcap = args['merge-pcap'] || false;
   const protocol = args.protocol || 'tls';
 
   if (command === 'client') {
@@ -224,8 +226,8 @@ async function main() {
 
     // Use UnifiedClient for raw-tcp (or h2/quic), FuzzerClient for plain TLS
     const client = (useRawTcp || protocol === 'h2' || protocol === 'quic')
-      ? new UnifiedClient({ host, port, timeout, delay, logger, pcapFile })
-      : new FuzzerClient({ host, port, timeout, delay, logger, pcapFile });
+      ? new UnifiedClient({ host, port, timeout, delay, logger, pcapFile, mergePcap })
+      : new FuzzerClient({ host, port, timeout, delay, logger, pcapFile, mergePcap });
 
     const originalRunScenario = client.runScenario.bind(client);
     client.runScenario = async (scenario) => {
@@ -338,7 +340,7 @@ async function main() {
 
     // UnifiedServer handles all protocols and fallback logic
     const server = new UnifiedServer({
-      port, hostname, timeout, delay, logger, pcapFile,
+      port, hostname, timeout, delay, logger, pcapFile, mergePcap,
       cert: certInfo.certDER,
       certInfo,
     });

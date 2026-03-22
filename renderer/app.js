@@ -352,6 +352,18 @@
     }
   }
 
+  function updateWorkerConstraints() {
+    const protocol = activeProtocol;
+    if (protocol === 'quic' || protocol === 'h2') {
+      workersInput.disabled = true;
+      workersInput.title = `${protocol.toUpperCase()} requires sequential execution (1 worker) to maintain protocol state and synchronization.`;
+      workersInput.value = 1;
+    } else {
+      workersInput.disabled = false;
+      workersInput.title = "";
+    }
+  }
+
   // Protocol tab switching
   tlsTabBtn.addEventListener('click', () => {
     if (activeProtocol === 'tls') return;
@@ -361,6 +373,7 @@
     quicTabBtn.classList.remove('active');
     tcpTabBtn.classList.remove('active');
     ldapTabBtn.classList.remove('active');
+    updateWorkerConstraints();
     filterScenariosBySide();
   });
 
@@ -372,6 +385,7 @@
     quicTabBtn.classList.remove('active');
     tcpTabBtn.classList.remove('active');
     ldapTabBtn.classList.remove('active');
+    updateWorkerConstraints();
     filterScenariosBySide();
   });
 
@@ -383,6 +397,7 @@
     http2TabBtn.classList.remove('active');
     tcpTabBtn.classList.remove('active');
     ldapTabBtn.classList.remove('active');
+    updateWorkerConstraints();
     filterScenariosBySide();
   });
 
@@ -394,6 +409,7 @@
     http2TabBtn.classList.remove('active');
     quicTabBtn.classList.remove('active');
     ldapTabBtn.classList.remove('active');
+    updateWorkerConstraints();
     filterScenariosBySide();
   });
 
@@ -406,6 +422,7 @@
     quicTabBtn.classList.remove('active');
     tcpTabBtn.classList.remove('active');
     portInput.value = '389';
+    updateWorkerConstraints();
     filterScenariosBySide();
   });
 
@@ -1090,7 +1107,7 @@
       wbServer = 'well-behaved-h2-server';
       wbClient = 'well-behaved-h2-client';
     } else if (activeProtocol === 'quic') {
-      wbServer = 'well-behaved-quic-server';
+      wbServer = 'srv-quic-well-behaved-echo';
       wbClient = 'well-behaved-quic-client';
     }
 
@@ -1155,7 +1172,7 @@
         clientScenarios: clientScenariosFinal.length > 0 ? clientScenariosFinal : null,
         serverScenarios: serverScenariosFinal.length > 0 ? serverScenariosFinal : null,
         clientConfig: { host, port, delay, timeout, workers, protocol: activeProtocol, dut, pcapFile: pcapFile || null, baseline: baselineCheck.checked },
-        serverConfig: { hostname: host, port, delay, timeout, workers, protocol: activeProtocol, dut, pcapFile: pcapFile || null, baseline: baselineCheck.checked },
+        serverConfig: { hostname: host, port, delay, timeout, workers: 1, protocol: activeProtocol, dut, pcapFile: pcapFile || null, baseline: baselineCheck.checked },
       });
 
       if (configResult.error) {
