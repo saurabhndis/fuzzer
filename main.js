@@ -12,6 +12,7 @@ const { listScenarios, getScenario, CATEGORY_DEFAULT_DISABLED } = require('./lib
 const { listHttp2Scenarios, getHttp2Scenario, HTTP2_CATEGORY_DEFAULT_DISABLED } = require('./lib/http2-scenarios');
 const { listQuicScenarios, getQuicScenario, QUIC_CATEGORY_DEFAULT_DISABLED } = require('./lib/quic-scenarios');
 const { listTcpScenarios, getTcpScenario, TCP_CATEGORIES, TCP_CATEGORY_SEVERITY } = require('./lib/tcp-scenarios');
+const { listLdapScenarios, getLdapScenario, LDAP_CATEGORIES, LDAP_CATEGORY_SEVERITY, LDAP_CATEGORY_DEFAULT_DISABLED } = require('./lib/ldap/scenarios');
 const { isRawAvailable } = require('./lib/raw-tcp');
 const { computeOverallGrade } = require('./lib/grader');
 const { computeExpected } = require('./lib/compute-expected');
@@ -133,6 +134,24 @@ ipcMain.handle('list-scenarios', () => {
     });
   }
 
+  // LDAP scenarios
+  const { categories: ldapCategories, scenarios: ldapScenarios } = listLdapScenarios();
+  const ldapStripped = {};
+  for (const [cat, items] of Object.entries(ldapScenarios)) {
+    ldapStripped[cat] = items.map(s => {
+      const computed = computeExpected(s);
+      return {
+        name: s.name,
+        category: s.category,
+        description: s.description,
+        side: s.side,
+        requiresRaw: !!s.requiresRaw,
+        expected: s.expected || computed.expected,
+        expectedReason: s.expectedReason || computed.reason,
+      };
+    });
+  }
+
   return {
     categories,
     scenarios: stripped,
@@ -146,6 +165,9 @@ ipcMain.handle('list-scenarios', () => {
     tcpCategories: TCP_CATEGORIES,
     tcpScenarios: tcpStripped,
     rawAvailable: isRawAvailable(),
+    ldapCategories,
+    ldapScenarios: ldapStripped,
+    ldapDefaultDisabled: [...LDAP_CATEGORY_DEFAULT_DISABLED],
   };
 });
 
@@ -176,15 +198,16 @@ ipcMain.handle('run-fuzzer', async (event, opts) => {
 
   const results = [];
 
-  // Resolve scenario objects from names (try TLS lookup, then HTTP/2, then QUIC)
+  // Resolve scenario objects from names (try TLS lookup, then HTTP/2, then QUIC, then LDAP)
   const lookup = (name) => {
     let s;
     if (protocol === 'raw-tcp') s = getTcpScenario(name);
     else if (protocol === 'quic') s = getQuicScenario(name);
     else if (protocol === 'h2') s = getHttp2Scenario(name);
+    else if (protocol === 'ldap') s = getLdapScenario(name);
 
     if (!s) {
-      s = getScenario(name) || getHttp2Scenario(name) || getQuicScenario(name) || getTcpScenario(name);
+      s = getScenario(name) || getHttp2Scenario(name) || getQuicScenario(name) || getTcpScenario(name) || getLdapScenario(name);
     }
     return s;
   };
@@ -351,6 +374,7 @@ ipcMain.handle('run-fuzzer', async (event, opts) => {
           try {
             if (proto === 'quic') await client.connectQuic();
             else if (proto === 'h2') await client.connectH2();
+            else if (proto === 'ldap') await client.connectLDAP();
             else await client.connectTLS();
           } catch (_) {}
           resolve(client);
@@ -504,7 +528,8 @@ ipcMain.handle('run-fuzzer', async (event, opts) => {
                   if (localMode) {
                     const client = new WellBehavedClient({ host: '127.0.0.1', port: portNum, logger });
                     const connectFn = protocol === 'quic' ? 'connectQuic'
-                      : protocol === 'h2' ? 'connectH2' : 'connectTLS';
+                      : protocol === 'h2' ? 'connectH2'
+                      : protocol === 'ldap' ? 'connectLDAP' : 'connectTLS';
                     client[connectFn]().catch(() => {}).then(() => client.stop());
                   }
                 } else {
@@ -608,6 +633,63 @@ ipcMain.handle('run-fuzzer', async (event, opts) => {
       send('fuzzer-packet', {
         type: 'info',
         message: `HTTP/2 server is running — connect a fuzzing client to port ${portNum} (TLS+ALPN h2)`,
+      });
+
+      await activeServer.waitForStop();
+      if (activeServer) activeServer.close();
+      activeServer = null;
+
+      const report = computeOverallGrade([]);
+      send('fuzzer-report', report);
+      return { results: [] };
+    }
+
+    if (protocol === 'ldap') {
+      // Start the LDAP fuzzer server
+      send('fuzzer-packet', {
+        type: 'info',
+        message: `LDAP fuzzer server starting on port ${portNum}`,
+      });
+
+      if (scenarios.length > 0) {
+        const totalLdapWithLoops = scenarios.length * loopCount;
+        send('fuzzer-packet', {
+          type: 'info',
+          message: localMode
+            ? `LDAP server running server-side scenarios with local client on port ${portNum}`
+            : `LDAP server running server-side scenarios — connect an LDAP client to port ${portNum}`,
+        });
+
+        try {
+          for (let loop = 0; loop < loopCount; loop++) {
+            if (activeServer.aborted) break;
+            if (loopCount > 1) {
+              send('fuzzer-packet', { type: 'info', message: `── Loop ${loop + 1} / ${loopCount} ──` });
+            }
+            for (const scenario of scenarios) {
+              if (activeServer.aborted) break;
+              send('fuzzer-progress', { scenario: scenario.name, total: totalLdapWithLoops, current: results.length + 1 });
+              const clientPromise = spawnLocalClient('ldap');
+              const result = await activeServer.runScenario(scenario);
+              if (clientPromise) { const c = await clientPromise; c.stop(); }
+              results.push(result);
+              send('fuzzer-result', result);
+              await new Promise(r => setTimeout(r, 500));
+            }
+          }
+        } finally {
+          if (activeServer) activeServer.close();
+          activeServer = null;
+        }
+        const report = computeOverallGrade(results);
+        send('fuzzer-report', report);
+        return { results };
+      }
+
+      // Passive mode: listen until stopped
+      send('fuzzer-packet', {
+        type: 'info',
+        message: `LDAP fuzzer server is running — connect an LDAP client to port ${portNum}`,
       });
 
       await activeServer.waitForStop();

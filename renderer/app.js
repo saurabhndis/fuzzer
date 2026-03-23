@@ -66,6 +66,7 @@
   const http2TabBtn = document.getElementById('http2TabBtn');
   const quicTabBtn = document.getElementById('quicTabBtn');
   const tcpTabBtn = document.getElementById('tcpTabBtn');
+  const ldapTabBtn = document.getElementById('ldapTabBtn');
 
   // State
   let running = false;
@@ -86,7 +87,10 @@
   let allTcpScenarios = {};
   let tcpCategories = {};
   let rawAvailable = false;
-  let activeProtocol = 'tls'; // 'tls' | 'h2' | 'quic' | 'raw-tcp'
+  let allLdapScenarios = {};
+  let ldapCategories = {};
+  let ldapDefaultDisabled = new Set();
+  let activeProtocol = 'tls'; // 'tls' | 'h2' | 'quic' | 'raw-tcp' | 'ldap'
   let unsubPacket = null;
   let unsubResult = null;
   let unsubProgress = null;
@@ -368,6 +372,7 @@
     http2TabBtn.classList.remove('active');
     quicTabBtn.classList.remove('active');
     tcpTabBtn.classList.remove('active');
+    ldapTabBtn.classList.remove('active');
     updateWorkerConstraints();
     filterScenariosBySide();
   });
@@ -379,6 +384,7 @@
     tlsTabBtn.classList.remove('active');
     quicTabBtn.classList.remove('active');
     tcpTabBtn.classList.remove('active');
+    ldapTabBtn.classList.remove('active');
     updateWorkerConstraints();
     filterScenariosBySide();
   });
@@ -390,6 +396,7 @@
     tlsTabBtn.classList.remove('active');
     http2TabBtn.classList.remove('active');
     tcpTabBtn.classList.remove('active');
+    ldapTabBtn.classList.remove('active');
     updateWorkerConstraints();
     filterScenariosBySide();
   });
@@ -401,6 +408,20 @@
     tlsTabBtn.classList.remove('active');
     http2TabBtn.classList.remove('active');
     quicTabBtn.classList.remove('active');
+    ldapTabBtn.classList.remove('active');
+    updateWorkerConstraints();
+    filterScenariosBySide();
+  });
+
+  ldapTabBtn.addEventListener('click', () => {
+    if (activeProtocol === 'ldap') return;
+    activeProtocol = 'ldap';
+    ldapTabBtn.classList.add('active');
+    tlsTabBtn.classList.remove('active');
+    http2TabBtn.classList.remove('active');
+    quicTabBtn.classList.remove('active');
+    tcpTabBtn.classList.remove('active');
+    portInput.value = '389';
     updateWorkerConstraints();
     filterScenariosBySide();
   });
@@ -423,6 +444,9 @@
       tcpCategories = data.tcpCategories || {};
       allTcpScenarios = data.tcpScenarios || {};
       rawAvailable = data.rawAvailable || false;
+      ldapCategories = data.ldapCategories || {};
+      allLdapScenarios = data.ldapScenarios || {};
+      ldapDefaultDisabled = new Set(data.ldapDefaultDisabled || []);
       renderScenarios();
     } catch (err) {
       console.error('Failed to load scenarios:', err);
@@ -446,6 +470,11 @@
 
     if (activeProtocol === 'h2') {
       renderH2Scenarios(side);
+      return;
+    }
+
+    if (activeProtocol === 'ldap') {
+      renderLdapScenarios(side);
       return;
     }
 
@@ -675,6 +704,36 @@
     }
   }
 
+  function renderLdapScenarios(side) {
+    scenariosList.innerHTML = '';
+
+    if (side === 'server') {
+      const info = document.createElement('div');
+      info.className = 'h2-server-info ldap-server-info';
+      info.innerHTML = `
+        <div class="h2-server-icon">📡</div>
+        <p class="h2-server-title">LDAP Server Mode</p>
+        <p class="h2-server-desc">Select <strong>LJ</strong> server-to-client attack scenarios below to start a <strong>malicious LDAP server</strong> on port <strong>${portInput.value}</strong>.</p>
+        <p class="h2-server-desc">A connecting LDAP client will trigger each selected scenario — the fuzzer acts as a rogue directory server.</p>
+      `;
+      scenariosList.appendChild(info);
+
+      for (const [cat, label] of Object.entries(ldapCategories)) {
+        const items = (allLdapScenarios[cat] || []).filter(s => s.side === 'server');
+        if (items.length === 0) continue;
+        scenariosList.appendChild(_buildProtocolCategoryGroup('ldap', cat, label, items));
+      }
+      return;
+    }
+
+    // Client mode — show scenarios
+    for (const [cat, label] of Object.entries(ldapCategories)) {
+      const items = (allLdapScenarios[cat] || []).filter(s => s.side === 'client');
+      if (items.length === 0) continue;
+      scenariosList.appendChild(_buildProtocolCategoryGroup('ldap', cat, label, items));
+    }
+  }
+
   // Render all scenarios (both client and server) for distributed mode.
   // Respects activeProtocol — shows TLS or H2 scenarios depending on the active tab.
   function renderAllScenarios() {
@@ -694,6 +753,15 @@
         const items = allQuicScenarios[cat] || [];
         if (items.length === 0) continue;
         scenariosList.appendChild(_buildQuicCategoryGroup(cat, label, items));
+      }
+      return;
+    }
+
+    if (activeProtocol === 'ldap') {
+      for (const [cat, label] of Object.entries(ldapCategories)) {
+        const items = allLdapScenarios[cat] || [];
+        if (items.length === 0) continue;
+        scenariosList.appendChild(_buildProtocolCategoryGroup('ldap', cat, label, items));
       }
       return;
     }
@@ -808,6 +876,7 @@
     if (activeProtocol === 'h2') disabled = h2DefaultDisabled;
     if (activeProtocol === 'quic') disabled = quicDefaultDisabled;
     if (activeProtocol === 'raw-tcp') disabled = new Set(); // all TCP scenarios are selectable
+    if (activeProtocol === 'ldap') disabled = ldapDefaultDisabled;
     // In distributed mode, server-side scenarios are runnable — don't skip them
     if (distributedMode) disabled = new Set();
 
@@ -1444,11 +1513,211 @@
   }
 
   function addHexDump(hex) {
+    // For LDAP protocol, show structured decode instead of raw hex
+    if (activeProtocol === 'ldap' && hex) {
+      const structured = decodeLdapHex(hex);
+      if (structured) {
+        const pre = document.createElement('pre');
+        pre.className = 'hex-dump ldap-structured';
+        pre.innerHTML = structured;
+        packetLog.appendChild(pre);
+        packetLog.scrollTop = packetLog.scrollHeight;
+        return;
+      }
+    }
     const pre = document.createElement('pre');
     pre.className = 'hex-dump';
     pre.textContent = hex;
     packetLog.appendChild(pre);
     packetLog.scrollTop = packetLog.scrollHeight;
+  }
+
+  // ── LDAP structured hex decoder ──────────────────────────────────────────
+  const LDAP_OPS = {
+    0x60: 'BindRequest',      0x61: 'BindResponse',
+    0x42: 'UnbindRequest',
+    0x63: 'SearchRequest',    0x64: 'SearchResultEntry',
+    0x65: 'SearchResultDone', 0x73: 'SearchResultReference',
+    0x66: 'ModifyRequest',    0x67: 'ModifyResponse',
+    0x68: 'AddRequest',       0x69: 'AddResponse',
+    0x4A: 'DelRequest',       0x6B: 'DelResponse',
+    0x6C: 'ModifyDNRequest',  0x6D: 'ModifyDNResponse',
+    0x6E: 'CompareRequest',   0x6F: 'CompareResponse',
+    0x50: 'AbandonRequest',
+    0x77: 'ExtendedRequest',  0x78: 'ExtendedResponse',
+  };
+  const LDAP_RESULTS = {
+    0: 'success', 1: 'operationsError', 2: 'protocolError', 3: 'timeLimitExceeded',
+    4: 'sizeLimitExceeded', 7: 'authMethodNotSupported', 8: 'strongerAuthRequired',
+    10: 'referral', 16: 'noSuchAttribute', 17: 'undefinedAttributeType',
+    32: 'noSuchObject', 34: 'invalidDNSyntax', 48: 'inappropriateAuthentication',
+    49: 'invalidCredentials', 50: 'insufficientAccessRights', 52: 'unavailable',
+    53: 'unwillingToPerform', 80: 'other',
+  };
+
+  function decodeLdapHex(hex) {
+    try {
+      const buf = [];
+      for (let i = 0; i < hex.length; i += 2) buf.push(parseInt(hex.substr(i, 2), 16));
+      const lines = [];
+      let off = 0;
+      while (off < buf.length) {
+        const msgStart = off;
+        if (buf[off] !== 0x30) { lines.push(esc(`[Non-LDAP data at offset ${off}: 0x${buf[off].toString(16)}]`)); break; }
+        off++;
+        const seqLen = readBerLength(buf, off);
+        if (!seqLen) break;
+        off = seqLen.end;
+        const msgEnd = off + seqLen.len;
+
+        // messageID
+        if (off >= msgEnd || buf[off] !== 0x02) { off = msgEnd; continue; }
+        off++;
+        const idLen = readBerLength(buf, off);
+        if (!idLen) break;
+        off = idLen.end;
+        let msgId = 0;
+        for (let i = 0; i < idLen.len && off < msgEnd; i++) msgId = (msgId << 8) | buf[off++];
+
+        // protocolOp
+        if (off >= msgEnd) { off = msgEnd; continue; }
+        const opTag = buf[off];
+        off++;
+        const opLen = readBerLength(buf, off);
+        if (!opLen) break;
+        off = opLen.end;
+        const opEnd = off + opLen.len;
+        const opName = LDAP_OPS[opTag] || `Unknown(0x${opTag.toString(16)})`;
+
+        let detail = '';
+        // Decode based on operation type
+        if (opTag === 0x60) { // BindRequest
+          const ver = readInt(buf, off, opEnd);
+          off = ver.end;
+          const dn = readOctetString(buf, off, opEnd);
+          off = dn.end;
+          detail = `version=${ver.val}  dn="${esc(dn.val)}"`;
+          // auth mechanism
+          if (off < opEnd) {
+            const authTag = buf[off];
+            if (authTag === 0x80) detail += '  auth=simple';
+            else if (authTag === 0xA3) detail += '  auth=SASL';
+          }
+        } else if (opTag === 0x61 || opTag === 0x65 || opTag === 0x67 || opTag === 0x69
+            || opTag === 0x6B || opTag === 0x6D || opTag === 0x6F || opTag === 0x78) {
+          // LDAPResult-style responses
+          const rc = readInt(buf, off, opEnd);
+          off = rc.end;
+          const matchedDN = readOctetString(buf, off, opEnd);
+          off = matchedDN.end;
+          const diagMsg = readOctetString(buf, off, opEnd);
+          const rcName = LDAP_RESULTS[rc.val] || `code=${rc.val}`;
+          detail = `resultCode=${rcName}`;
+          if (matchedDN.val) detail += `  matchedDN="${esc(matchedDN.val)}"`;
+          if (diagMsg.val) detail += `  msg="${esc(diagMsg.val)}"`;
+        } else if (opTag === 0x63) { // SearchRequest
+          const baseDN = readOctetString(buf, off, opEnd);
+          off = baseDN.end;
+          const scope = readInt(buf, off, opEnd);
+          off = scope.end;
+          const scopeNames = ['baseObject', 'singleLevel', 'wholeSubtree'];
+          detail = `base="${esc(baseDN.val)}"  scope=${scopeNames[scope.val] || scope.val}`;
+        } else if (opTag === 0x64) { // SearchResultEntry
+          const dn = readOctetString(buf, off, opEnd);
+          off = dn.end;
+          detail = `dn="${esc(dn.val)}"`;
+          // Try to read attributes
+          if (off < opEnd && buf[off] === 0x30) {
+            const attrs = readAttributes(buf, off, opEnd);
+            if (attrs.names.length > 0) detail += `  attrs=[${attrs.names.join(', ')}]`;
+          }
+        } else if (opTag === 0x77) { // ExtendedRequest
+          if (off < opEnd && buf[off] === 0x80) {
+            off++;
+            const oidLen = readBerLength(buf, off);
+            if (oidLen) {
+              off = oidLen.end;
+              let oid = '';
+              for (let i = 0; i < oidLen.len && off < opEnd; i++) oid += String.fromCharCode(buf[off++]);
+              detail = `oid=${oid}`;
+              if (oid === '1.3.6.1.4.1.1466.20037') detail += ' (StartTLS)';
+              else if (oid === '1.3.6.1.4.1.4203.1.11.3') detail += ' (WhoAmI)';
+              else if (oid === '1.3.6.1.4.1.4203.1.11.1') detail += ' (PasswordModify)';
+              else if (oid === '1.2.840.113556.1.4.1781') detail += ' (FastBind)';
+            }
+          }
+        }
+
+        const line = `<span class="ldap-msgid">msgID=${msgId}</span>  <span class="ldap-op">${esc(opName)}</span>  ${detail}`;
+        lines.push(line);
+        off = msgEnd;
+      }
+      return lines.length > 0 ? lines.join('\n') : null;
+    } catch (e) {
+      return null; // Fall back to raw hex
+    }
+  }
+
+  function readBerLength(buf, off) {
+    if (off >= buf.length) return null;
+    const first = buf[off];
+    if (first < 0x80) return { len: first, end: off + 1 };
+    const numBytes = first & 0x7F;
+    if (numBytes === 0 || numBytes > 4 || off + 1 + numBytes > buf.length) return { len: 0, end: off + 1 };
+    let len = 0;
+    for (let i = 0; i < numBytes; i++) len = (len << 8) | buf[off + 1 + i];
+    return { len, end: off + 1 + numBytes };
+  }
+
+  function readInt(buf, off, max) {
+    if (off >= max || buf[off] !== 0x02) return { val: 0, end: off };
+    off++;
+    const len = readBerLength(buf, off);
+    if (!len) return { val: 0, end: off };
+    off = len.end;
+    let val = 0;
+    for (let i = 0; i < len.len && off < max; i++) val = (val << 8) | buf[off++];
+    return { val, end: off };
+  }
+
+  function readOctetString(buf, off, max) {
+    if (off >= max || buf[off] !== 0x04) return { val: '', end: off };
+    off++;
+    const len = readBerLength(buf, off);
+    if (!len) return { val: '', end: off };
+    off = len.end;
+    let val = '';
+    for (let i = 0; i < len.len && off < max; i++) {
+      const b = buf[off++];
+      val += (b >= 32 && b < 127) ? String.fromCharCode(b) : '.';
+    }
+    return { val, end: off };
+  }
+
+  function readAttributes(buf, off, max) {
+    const names = [];
+    if (off >= max || buf[off] !== 0x30) return { names, end: off };
+    off++;
+    const seqLen = readBerLength(buf, off);
+    if (!seqLen) return { names, end: off };
+    off = seqLen.end;
+    const seqEnd = Math.min(off + seqLen.len, max);
+    while (off < seqEnd && names.length < 10) {
+      if (buf[off] !== 0x30) break;
+      off++;
+      const attrLen = readBerLength(buf, off);
+      if (!attrLen) break;
+      off = attrLen.end;
+      const attrEnd = Math.min(off + attrLen.len, seqEnd);
+      const name = readOctetString(buf, off, attrEnd);
+      if (name.val) names.push(name.val);
+      off = attrEnd;
+    }
+    return { names, end: seqEnd };
+  }
+
+  function esc(s) {
+    return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   }
 
   // Summary

@@ -8,6 +8,7 @@ const { getScenario, getScenariosByCategory, getClientScenarios, CATEGORY_DEFAUL
 const { getHttp2Scenario, getHttp2ScenariosByCategory, listHttp2ClientScenarios } = require('./lib/http2-scenarios');
 const { getQuicScenario, getQuicScenariosByCategory, listQuicClientScenarios } = require('./lib/quic-scenarios');
 const { getTcpScenario, getTcpScenariosByCategory, getTcpClientScenarios } = require('./lib/tcp-scenarios');
+const { getLdapScenario, getLdapScenariosByCategory, listLdapClientScenarios, LDAP_CATEGORY_DEFAULT_DISABLED } = require('./lib/ldap/scenarios');
 const { isRawAvailable } = require('./lib/raw-tcp');
 const { computeOverallGrade } = require('./lib/grader');
 const cluster = require('cluster');
@@ -69,6 +70,7 @@ function getScenarios(args, useRawTcp, protocol) {
     if (useRawTcp) scenarios = getTcpScenariosByCategory(cat);
     else if (protocol === 'h2') scenarios = getHttp2ScenariosByCategory(cat);
     else if (protocol === 'quic') scenarios = getQuicScenariosByCategory(cat);
+    else if (protocol === 'ldap') scenarios = getLdapScenariosByCategory(cat);
     else scenarios = getScenariosByCategory(cat);
 
     scenarios = scenarios.filter(s => s.side === 'client');
@@ -84,6 +86,8 @@ function getScenarios(args, useRawTcp, protocol) {
       scenarios = listHttp2ClientScenarios();
     } else if (protocol === 'quic') {
       scenarios = listQuicClientScenarios();
+    } else if (protocol === 'ldap') {
+      scenarios = listLdapClientScenarios().filter(s => !LDAP_CATEGORY_DEFAULT_DISABLED.has(s.category));
     } else {
       scenarios = getClientScenarios().filter(s => !CATEGORY_DEFAULT_DISABLED.has(s.category));
     }
@@ -99,8 +103,9 @@ function getScenarios(args, useRawTcp, protocol) {
       if (useRawTcp) s = getTcpScenario(name);
       else if (protocol === 'h2') s = getHttp2Scenario(name);
       else if (protocol === 'quic') s = getQuicScenario(name);
+      else if (protocol === 'ldap') s = getLdapScenario(name);
 
-      if (!s) s = getScenario(name);
+      if (!s) s = getLdapScenario(name) || getScenario(name);
 
       if (!s) {
         console.error(`Unknown scenario: ${name}`);
