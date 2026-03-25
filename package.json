@@ -13,8 +13,10 @@
   },
   "dependencies": {
     "@currentspace/http3": "^0.4.0",
-    "raw-socket": "^1.7.0",
     "xml2js": "^0.6.2"
+  },
+  "optionalDependencies": {
+    "raw-socket": "^1.7.0"
   },
   "devDependencies": {
     "electron": "^40.6.0"
