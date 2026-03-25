@@ -5,12 +5,67 @@
 // Batch 3: Scans (SCAN, PAN, PAN-PQC)
 
 const http = require('http');
+const fs = require('fs');
 const { startAgent } = require('./lib/agent');
 const { WellBehavedServer } = require('./lib/well-behaved-server');
 const { getClientScenarios } = require('./lib/scenarios');
 
 const SERVER_PORT = 4435;
 const AGENT_PORT = 9252;
+const LOG_FILE = 'tls.log';
+
+const logStream = fs.createWriteStream(LOG_FILE);
+
+function formatHex(hex) {
+  const buf = Buffer.from(hex, 'hex');
+  let out = '';
+  for (let i = 0; i < buf.length; i += 16) {
+    const chunk = buf.slice(i, i + 16);
+    const hexPart = (chunk.toString('hex').match(/.{1,2}/g) || []).join(' ').padEnd(47);
+    const asciiPart = Array.from(chunk).map(c => (c >= 32 && c <= 126) ? String.fromCharCode(c) : '.').join('');
+    out += `    ${i.toString(16).padStart(8, '0')}  ${hexPart}  |${asciiPart}|\n`;
+  }
+  return out;
+}
+
+function startLogCollector(port) {
+  http.get({ hostname: 'localhost', port, path: '/events' }, (res) => {
+    res.on('data', (chunk) => {
+      const lines = chunk.toString().split('\n');
+      for (const line of lines) {
+        if (!line.trim()) continue;
+        try {
+          const event = JSON.parse(line);
+          if (event.type === 'logger') {
+            const e = event.event;
+            const scenarioTag = e.scenario ? ` [${e.scenario}]` : '';
+            if (e.type === 'scenario') {
+              logStream.write(`\n━━━ Scenario: ${e.name} ━━━\n    ${e.description}\n`);
+            } else if (e.type === 'sent') {
+              logStream.write(`${e.ts}${scenarioTag} → ${e.label} (${e.size} bytes)\n`);
+              if (e.hex) logStream.write(formatHex(e.hex));
+            } else if (e.type === 'received') {
+              logStream.write(`${e.ts}${scenarioTag} ← ${e.label} (${e.size} bytes)\n`);
+              if (e.hex) logStream.write(formatHex(e.hex));
+            } else if (e.type === 'tcp') {
+              const arrow = e.direction === 'sent' ? '→' : '←';
+              logStream.write(`${e.ts}${scenarioTag} ${arrow} [TCP] ${e.event}\n`);
+            } else if (e.type === 'fuzz') {
+              logStream.write(`${e.ts}${scenarioTag} ⚡ [FUZZ] ${e.message}\n`);
+            } else if (e.type === 'info') {
+              logStream.write(`${e.ts}${scenarioTag} ℹ ${e.message}\n`);
+            }
+          } else if (event.type === 'result') {
+            const r = event.result;
+            logStream.write(`\nRESULT [${r.scenario}]: ${r.status} (${r.response || ''})\n`);
+          }
+        } catch (e) {}
+      }
+    });
+  }).on('error', (err) => {
+    console.error('Log collector error:', err.message);
+  });
+}
 
 function httpPost(port, path, body) {
   return new Promise((resolve, reject) => {
@@ -90,6 +145,7 @@ async function run() {
 
   const agent = startAgent('client', { controlPort: AGENT_PORT });
   await new Promise(r => setTimeout(r, 1000));
+  startLogCollector(AGENT_PORT);
 
   const allResults = [];
 
