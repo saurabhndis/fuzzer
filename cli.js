@@ -313,7 +313,7 @@ async function main() {
 
     const hostname = args.hostname || 'localhost';
     const certInfo = generateServerCert(hostname);
-    const fp = certInfo.fingerprint.match(/.{2}/g).join(':').toUpperCase();
+    const fp = (certInfo.fingerprint.match(/.{2}/g) || []).join(':').toUpperCase();
     logger.info(`Server certificate: CN=${hostname} | SHA256=${fp}`);
 
     // UnifiedServer handles all protocols and fallback logic

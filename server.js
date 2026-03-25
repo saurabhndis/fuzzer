@@ -165,7 +165,7 @@ async function primaryMain(args) {
   // Generate self-signed certificate
   const certInfo = generateServerCert(hostname);
   const fp = certInfo.fingerprint;
-  const fpFormatted = fp.match(/.{2}/g).join(':').toUpperCase();
+  const fpFormatted = (fp.match(/.{2}/g) || []).join(':').toUpperCase();
 
   console.log('');
   console.log('  \x1b[1m\x1b[36mTLS/TCP Protocol Fuzzer — Server\x1b[0m');
