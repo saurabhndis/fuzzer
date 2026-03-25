@@ -1,2 +1,7 @@
 node_modules/
 .claude/
+*.pcap
+*.log
+*.bak
+*.txt
+test-output/
