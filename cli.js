@@ -243,6 +243,12 @@ async function main() {
     });
 
     const { results, report } = await client.runScenarios(scenarios);
+    
+    // Send graceful shutdown signal to fuzzer server
+    if (client.shutdown) {
+      await client.shutdown(protocol);
+    }
+    
     client.close();
 
     if (pcapFile) {

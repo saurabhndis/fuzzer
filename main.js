@@ -272,6 +272,12 @@ ipcMain.handle('run-fuzzer', async (event, opts) => {
             });
           }
         });
+
+        // After all workers are done, send a final shutdown signal
+        const closer = new UnifiedClient({ host: clientHost, port: clientPort, logger, timeout, delay });
+        await closer.shutdown(protocol);
+        closer.close();
+
       } finally {
         if (localServer) localServer.stop();
       }
@@ -320,7 +326,10 @@ ipcMain.handle('run-fuzzer', async (event, opts) => {
           }
         }
       } finally {
-        activeClient.close();
+        if (activeClient) {
+          await activeClient.shutdown(protocol);
+          activeClient.close();
+        }
         activeClient = null;
         if (localServer) localServer.stop();
       }
