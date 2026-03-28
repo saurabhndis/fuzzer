@@ -1367,7 +1367,7 @@
       modeSelect.value = result.agentRole;
     }
     // Hide well-behaved counterpart results — they are internal helpers, not actual tests
-    if (result.scenario && result.scenario.startsWith('well-behaved-')) {
+    if (result.scenario && result.scenario.includes('well-behaved')) {
       return;
     }
     const meta = findScenarioMeta(result.scenario);
