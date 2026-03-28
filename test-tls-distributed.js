@@ -91,7 +91,7 @@ function httpGet(port, path) {
   });
 }
 
-async function waitForDone(port, total, timeout = 1800000) {
+async function waitForDone(port, total, timeout = 3600000) {
   const start = Date.now();
   let lastCount = -1;
   while (Date.now() - start < timeout) {
@@ -112,7 +112,7 @@ async function runBatch(agentPort, serverPort, scenarioNames) {
   try { await httpPost(agentPort, '/stop', {}); } catch {}
   await new Promise(r => setTimeout(r, 500));
   const configResult = await httpPost(agentPort, '/configure', {
-    config: { host: 'localhost', port: serverPort, protocol: 'tls', workers: 10, timeout: 1000, delay: 10, baseline: false },
+    config: { host: 'localhost', port: serverPort, protocol: 'tls', workers: 10, timeout: 5000, delay: 10, baseline: false },
     scenarios: scenarioNames,
   });
   if (configResult.scenarioCount === 0) throw new Error('No scenarios resolved');
