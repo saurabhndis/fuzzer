@@ -80,14 +80,19 @@ async function runClientFuzzBatch(protocol, clientScenarios, wellBehavedServerNa
   }
 
   let completed = 0;
+  let prevServerPromise = null;
   for (let i = 0; i < clientScenarios.length; i++) {
     const cs = clientScenarios[i];
     logToFile(`\n--- [${i + 1}/${count}] ${cs.name} ---`);
 
     try {
-      // Run server in background (fire and forget — we don't wait for it)
+      // Wait for the previous server scenario to finish before starting a new one
+      // to avoid overlapping QuicheServer.runScenario() calls racing for sessions.
+      if (prevServerPromise) await prevServerPromise;
+
       server._onListening = null; // will set below
       const serverPromise = server.runScenario(wbServer).catch(() => {});
+      prevServerPromise = serverPromise;
 
       // Wait for server to signal it's listening, then run client
       const clientResult = await new Promise((resolve, reject) => {
