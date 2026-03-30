@@ -33,6 +33,7 @@ contextBridge.exposeInMainWorld('fuzzer', {
   distributedConnect: (opts) => ipcRenderer.invoke('distributed-connect', opts),
   distributedConfigure: (opts) => ipcRenderer.invoke('distributed-configure', opts),
   distributedRun: () => ipcRenderer.invoke('distributed-run'),
+  distributedRunStepped: (opts) => ipcRenderer.invoke('distributed-run-stepped', opts),
   distributedStop: () => ipcRenderer.invoke('distributed-stop'),
   distributedStatus: (role) => ipcRenderer.invoke('distributed-status', role),
   distributedDisconnect: () => ipcRenderer.invoke('distributed-disconnect'),

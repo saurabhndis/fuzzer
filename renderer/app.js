@@ -1191,47 +1191,21 @@
       setAgentStatus(data.role, data.status);
     });
 
-    // Trigger execution
+    // Trigger stepped execution — one scenario pair at a time
     try {
-      addLogEntry('info', 'Starting distributed execution...');
-      const runResult = await window.fuzzer.distributedRun();
+      const totalPairs = clientScenariosFinal.length; // Both lists are same length by construction
+      addLogEntry('info', `Starting stepped distributed execution (${totalPairs} pairs)...`);
+      const runResult = await window.fuzzer.distributedRunStepped({ totalPairs });
       if (runResult.error) {
         addLogEntry('error', `Run failed: ${runResult.error}`);
-        finishDistributedRun();
-        return;
       }
     } catch (err) {
       addLogEntry('error', `Run failed: ${err.message || err}`);
-      finishDistributedRun();
-      return;
     }
 
-    // Fallback: poll agent status in case 'done' events were lost
-    const statusPoll = setInterval(async () => {
-      if (!running || !distributedMode) { clearInterval(statusPoll); return; }
-      try {
-        if (!agentsDone.client && connectedAgents.client) {
-          const cs = await window.fuzzer.distributedStatus('client');
-          if (cs && cs.status === 'done') {
-            agentsDone.client = true;
-            setAgentStatus('client', 'done');
-            addLogEntry('info', 'Client agent finished (detected via status poll)');
-          }
-        }
-        if (!agentsDone.server && connectedAgents.server) {
-          const ss = await window.fuzzer.distributedStatus('server');
-          if (ss && ss.status === 'done') {
-            agentsDone.server = true;
-            setAgentStatus('server', 'done');
-            addLogEntry('info', 'Server agent finished (detected via status poll)');
-          }
-        }
-        if (agentsDone.client && agentsDone.server) {
-          clearInterval(statusPoll);
-          finishDistributedRun();
-        }
-      } catch (_) {}
-    }, 3000);
+    // Stepped execution blocks until all pairs complete + /finish is sent,
+    // so both agents should already be done. Finish immediately.
+    finishDistributedRun();
   }
 
   function finishDistributedRun() {

@@ -869,6 +869,47 @@ ipcMain.handle('distributed-run', async () => {
   }
 });
 
+// Start stepped distributed execution — one scenario pair at a time
+ipcMain.handle('distributed-run-stepped', async (_event, opts) => {
+  if (!controller) return { error: 'Not connected' };
+
+  const { totalPairs } = opts;
+
+  // Subscribe to all events from both agents and relay via IPC
+  controller.onEvent((role, event) => {
+    switch (event.type) {
+      case 'logger':
+        send('fuzzer-packet', { ...event.event, agentRole: role });
+        break;
+      case 'progress':
+        send('fuzzer-progress', { ...event, agentRole: role });
+        break;
+      case 'result':
+        send('fuzzer-result', { ...event.result, agentRole: role });
+        break;
+      case 'report':
+        send('fuzzer-report', { ...event.report, agentRole: role });
+        break;
+      case 'done':
+        send('distributed-agent-done', { role });
+        break;
+      case 'status':
+        send('distributed-agent-status', { role, ...event });
+        break;
+      case 'error':
+        send('fuzzer-packet', { type: 'error', message: event.message, agentRole: role });
+        break;
+    }
+  });
+
+  try {
+    await controller.runStepped(totalPairs);
+    return { ok: true };
+  } catch (err) {
+    return { error: err.message };
+  }
+});
+
 // Stop distributed execution
 ipcMain.handle('distributed-stop', async () => {
   if (!controller) return { error: 'Not connected' };
