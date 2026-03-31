@@ -13,6 +13,16 @@ const { listHttp2Scenarios, getHttp2Scenario, HTTP2_CATEGORY_DEFAULT_DISABLED } 
 const { listQuicScenarios, getQuicScenario, QUIC_CATEGORY_DEFAULT_DISABLED } = require('./lib/quic-scenarios');
 const { listTcpScenarios, getTcpScenario, TCP_CATEGORIES, TCP_CATEGORY_SEVERITY } = require('./lib/tcp-scenarios');
 const { isRawAvailable } = require('./lib/raw-tcp');
+
+// Categories that represent non-fuzz (clean) traffic: well-behaved, scan, probe, detection
+const NON_FUZZ_CATEGORIES = new Set([
+  // TLS
+  'Z', 'FV', 'SCAN', 'PAN', 'PAN-PQC', 'FW', 'SB',
+  // HTTP/2
+  'AH', 'AM', 'AN', 'AO',
+  // QUIC
+  'QZ', 'QSCAN', 'QM', 'QN', 'QO',
+]);
 const { computeOverallGrade } = require('./lib/grader');
 const { computeExpected } = require('./lib/compute-expected');
 const { Controller } = require('./lib/controller');
@@ -75,6 +85,7 @@ ipcMain.handle('list-scenarios', () => {
         requiresRaw: !!s.requiresRaw,
         expected: s.expected || computed.expected,
         expectedReason: s.expectedReason || computed.reason,
+        fuzzed: !NON_FUZZ_CATEGORIES.has(s.category),
       };
     });
   }
@@ -93,6 +104,7 @@ ipcMain.handle('list-scenarios', () => {
         requiresRaw: !!s.requiresRaw,
         expected: s.expected || computed.expected,
         expectedReason: s.expectedReason || computed.reason,
+        fuzzed: !NON_FUZZ_CATEGORIES.has(s.category),
       };
     });
   }
@@ -111,6 +123,7 @@ ipcMain.handle('list-scenarios', () => {
         requiresRaw: !!s.requiresRaw,
         expected: s.expected || computed.expected,
         expectedReason: s.expectedReason || computed.reason,
+        fuzzed: !NON_FUZZ_CATEGORIES.has(s.category),
       };
     });
   }
@@ -129,6 +142,7 @@ ipcMain.handle('list-scenarios', () => {
         requiresRaw: !!s.requiresRaw,
         expected: s.expected || computed.expected,
         expectedReason: s.expectedReason || computed.reason,
+        fuzzed: !NON_FUZZ_CATEGORIES.has(cat),
       };
     });
   }

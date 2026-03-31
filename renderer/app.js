@@ -13,8 +13,6 @@
   workersInput.value = window.fuzzer.cpuCount || 4;
   const verboseCheck = document.getElementById('verboseCheck');
   const scenariosList = document.getElementById('scenariosList');
-  const selectAllBtn = document.getElementById('selectAllBtn');
-  const selectNoneBtn = document.getElementById('selectNoneBtn');
   const runBtn = document.getElementById('runBtn');
   const rerunFailedBtn = document.getElementById('rerunFailedBtn');
   const stopBtn = document.getElementById('stopBtn');
@@ -66,6 +64,10 @@
   const http2TabBtn = document.getElementById('http2TabBtn');
   const quicTabBtn = document.getElementById('quicTabBtn');
   const tcpTabBtn = document.getElementById('tcpTabBtn');
+
+  // Select menu elements
+  const selectMenuBtn = document.getElementById('selectMenuBtn');
+  const selectMenu = document.getElementById('selectMenu');
 
   // State
   let running = false;
@@ -434,6 +436,35 @@
     filterScenariosBySide();
   });
 
+  // Select dropdown menu
+  selectMenuBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    selectMenu.classList.toggle('open');
+  });
+
+  // Close menu on outside click
+  document.addEventListener('click', () => {
+    selectMenu.classList.remove('open');
+  });
+
+  selectMenu.addEventListener('click', (e) => {
+    const item = e.target.closest('.select-menu-item');
+    if (!item) return;
+    const action = item.dataset.action;
+    selectMenu.classList.remove('open');
+
+    const checkboxes = scenariosList.querySelectorAll('input[type="checkbox"]:not(:disabled)');
+    if (action === 'none') {
+      checkboxes.forEach(cb => cb.checked = false);
+    } else if (action === 'all') {
+      checkboxes.forEach(cb => cb.checked = true);
+    } else if (action === 'fuzz') {
+      checkboxes.forEach(cb => cb.checked = cb.dataset.fuzzed === 'true');
+    } else if (action === 'clean') {
+      checkboxes.forEach(cb => cb.checked = cb.dataset.fuzzed === 'false');
+    }
+  });
+
   // Load scenarios
   async function loadScenarios() {
     console.log('Loading scenarios...');
@@ -533,6 +564,7 @@
         cb.value = s.name;
         cb.dataset.side = s.side;
         cb.dataset.category = cat;
+        cb.dataset.fuzzed = s.fuzzed ? 'true' : 'false';
         if (isUnavailable) {
           cb.disabled = true;
         }
@@ -607,6 +639,7 @@
       cb.value = s.name;
       cb.dataset.side = s.side;
       cb.dataset.category = cat;
+      cb.dataset.fuzzed = s.fuzzed ? 'true' : 'false';
       cb.dataset.protocol = protocol;
       if (isUnavailable) {
         cb.disabled = true;
@@ -794,6 +827,7 @@
         cb.value = s.name;
         cb.dataset.side = s.side;
         cb.dataset.category = cat;
+        cb.dataset.fuzzed = s.fuzzed ? 'true' : 'false';
         if (isUnavailable) {
           cb.disabled = true;
         }
@@ -831,23 +865,6 @@
     return Array.from(checkboxes).map(cb => cb.value);
   }
 
-  function setAllCheckboxes(checked) {
-    const checkboxes = scenariosList.querySelectorAll('input[type="checkbox"]');
-    let disabled = defaultDisabled;
-    if (activeProtocol === 'h2') disabled = h2DefaultDisabled;
-    if (activeProtocol === 'quic') disabled = quicDefaultDisabled;
-    if (activeProtocol === 'raw-tcp') disabled = new Set(); // all TCP scenarios are selectable
-    // In distributed mode, server-side scenarios are runnable — don't skip them
-    if (distributedMode) disabled = new Set();
-
-    checkboxes.forEach(cb => {
-      if (checked && disabled.has(cb.dataset.category)) return;
-      cb.checked = checked;
-    });
-  }
-
-  selectAllBtn.addEventListener('click', () => setAllCheckboxes(true));
-  selectNoneBtn.addEventListener('click', () => setAllCheckboxes(false));
 
   // PCAP toggle
   pcapBtn.addEventListener('click', async () => {

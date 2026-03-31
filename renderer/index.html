@@ -125,8 +125,16 @@
           <div class="panel-title-row">
             <h2>Scenarios</h2>
             <div class="scenario-controls">
-              <button id="selectAllBtn" class="btn-small">Select All</button>
-              <button id="selectNoneBtn" class="btn-small">Deselect All</button>
+              <div class="select-menu-wrap">
+                <button id="selectMenuBtn" class="btn-small select-menu-btn">Select &#9662;</button>
+                <div id="selectMenu" class="select-menu">
+                  <div class="select-menu-item" data-action="all">Select All</div>
+                  <div class="select-menu-item select-menu-fuzz" data-action="fuzz">Select Fuzz</div>
+                  <div class="select-menu-item select-menu-clean" data-action="clean">Select Clean</div>
+                  <div class="select-menu-divider"></div>
+                  <div class="select-menu-item" data-action="none">Deselect All</div>
+                </div>
+              </div>
             </div>
           </div>
           <div class="protocol-tabs">
