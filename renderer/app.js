@@ -381,9 +381,9 @@
 
   function updateWorkerConstraints() {
     const protocol = activeProtocol;
-    if (protocol === 'quic' || protocol === 'h2') {
+    if (protocol === 'tls' || protocol === 'h2' || protocol === 'quic') {
       workersInput.disabled = true;
-      workersInput.title = `${protocol.toUpperCase()} requires sequential execution (1 worker) to maintain protocol state and synchronization.`;
+      workersInput.title = `${protocol.toUpperCase()} is currently limited to 1 worker (concurrency support coming later).`;
       workersInput.value = 1;
     } else {
       workersInput.disabled = false;
