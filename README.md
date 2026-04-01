@@ -561,13 +561,117 @@ Results are compared against expected outcomes to produce a verdict (**AS EXPECT
 
 After timeouts or errors, the client automatically runs health probes (TCP connect + HTTPS HEAD request) to detect if the target crashed. Results include `hostDown` status and probe latency.
 
-### PCAP Recording
+### PCAP Recording and TLS Decryption
 
-The `--pcap` flag records all traffic to standard PCAP format for analysis in Wireshark:
+The fuzzer supports two complementary output files for traffic analysis in Wireshark:
+
+| File | Extension | Contents |
+|------|-----------|----------|
+| **PCAP** | `.pcap` | Raw (encrypted) packet capture in standard Wireshark format |
+| **Keylog** | `.keylog` | TLS session keys in NSS Key Log format for decryption |
+
+#### Output file locations
+
+The keylog file is always created alongside the PCAP file, with the same base name:
+
+```
+capture.pcap       ← packet capture
+capture.keylog     ← TLS session keys (auto-created)
+```
+
+#### CLI usage
 
 ```bash
+# TLS — all scenarios, with capture
 node client.js target.com 443 --scenario all --pcap capture.pcap
+
+# HTTP/2 — specific category
+node client.js target.com 443 --category AA --pcap h2-fuzz.pcap
+
+# After the run, two files exist:
+#   capture.pcap     — open in Wireshark
+#   capture.keylog   — load for TLS decryption (see below)
 ```
+
+#### GUI usage
+
+Enable the **PCAP** toggle in the toolbar before clicking **RUN**. A file-picker lets you choose the output path. The `.keylog` file is written to the same directory with the same base name automatically.
+
+#### Loading in Wireshark
+
+1. Open the `.pcap` file in Wireshark
+2. Go to **Edit → Preferences → Protocols → TLS**
+3. Set **`(Pre)-Master-Secret log filename`** to the `.keylog` file
+4. Click **OK** — all TLS sessions will decrypt in-place
+
+Wireshark uses the `CLIENT_RANDOM` value from each TLS ClientHello to match the correct key material. Once decrypted, the protocol column shows the inner application protocol (e.g. `HTTP2`, `HTTP`) rather than `TLSv1.3 Application Data`.
+
+> **Tip:** You can also pass the keylog on the command line to avoid the GUI step:
+> ```bash
+> /Applications/Wireshark.app/Contents/MacOS/tshark \
+>   -r capture.pcap \
+>   -o "tls.keylog_file:capture.keylog"
+> ```
+
+#### How capture works per protocol
+
+| Protocol | PCAP method | Notes |
+|----------|-------------|-------|
+| **TLS** (raw) | Synthetic packets — fuzzer constructs each byte manually and writes them directly to the PCAP | Full fidelity; every byte is captured including intentionally malformed records |
+| **HTTP/2** | Transparent TCP proxy — a local proxy sits between the fuzzer client and the H2 server, recording raw encrypted bytes as they flow through | Real wire bytes; decrypts fully with keylog |
+| **QUIC** | Raw UDP packets written directly | QUIC key export for decryption requires additional setup (see below) |
+| **Raw TCP** | Captured at raw socket level | Contains actual IP/TCP headers |
+
+#### HTTP/2 and QUIC: why a proxy is needed
+
+For HTTP/2 and QUIC, Node.js manages the TLS handshake internally via C++ OpenSSL bindings. The encrypted bytes never pass through a JavaScript write path that the fuzzer can intercept directly. A transparent TCP proxy is therefore used to record real wire traffic:
+
+```
+fuzzer client → [proxy:PROXY_PORT] → [H2 server:SERVER_PORT]
+                       ↓
+                  PCAP writer (real encrypted bytes)
+```
+
+The proxy is pure Node.js userspace — no root or BPF privileges required. The keylog is captured independently via the TLS socket's `keylog` event and written to the `.keylog` file.
+
+#### Running the AV/SB HTTP/2 test with full capture
+
+A dedicated test script runs the HTTP/2 virus/firewall (AN) and sandbox (AO) categories with a capture proxy and keylog export:
+
+```bash
+node test-h2-avsb-pcap.js
+```
+
+This produces:
+
+```
+/tmp/h2-avsb.pcap    — 159 TLS+H2 sessions (one per scenario)
+/tmp/h2-avsb.keylog  — 800 key lines (5 per session)
+```
+
+Each session in the PCAP follows the same structure:
+
+```
+TCP SYN → SYN-ACK → ACK
+TLS ClientHello
+TLS ServerHello + Certificate + Finished
+HTTP/2 Magic + SETTINGS + HEADERS (POST / with AV/SB payload) + DATA
+HTTP/2 SETTINGS + 200 OK + DATA
+HTTP/2 GOAWAY + TLS Close Notify
+TCP FIN
+```
+
+After loading the keylog in Wireshark, the protocol column shows `HTTP2` for all application frames, and you can inspect the exact payload content (EICAR strings, SQL injection, shellcode stagers, etc.) that the fuzzer sent.
+
+#### QUIC keylog
+
+QUIC traffic is encrypted with TLS 1.3 via the quiche/BoringSSL engine. To decrypt QUIC captures set the `SSLKEYLOGFILE` environment variable before running:
+
+```bash
+SSLKEYLOGFILE=/tmp/quic.keylog node client.js target.com 4433 --protocol quic --scenario all --pcap quic.pcap
+```
+
+Then in Wireshark load `/tmp/quic.keylog` via the same TLS preferences path. Wireshark 3.6+ supports QUIC decryption natively.
 
 ---
 

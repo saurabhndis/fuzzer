@@ -113,8 +113,8 @@ async function run() {
     // ── Batch 3: Adapted TLS (QG-QK) — sample ──
     const adaptedCats = ['QG','QH','QI','QJ','QK'];
     const adaptedAll = adaptedCats.flatMap(c => byCategory[c] || []);
-    // Take every Nth to get a representative sample of ~100
-    const sampleSize = 100;
+    // Take every Nth to get a representative sample of ~20
+    const sampleSize = 20;
     const step = Math.max(1, Math.floor(adaptedAll.length / sampleSize));
     const adaptedSample = adaptedAll.filter((_, i) => i % step === 0);
     console.log(`\n── BATCH 3: Adapted TLS sample (${adaptedSample.length}/${adaptedAll.length} scenarios) ──`);

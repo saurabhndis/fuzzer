@@ -983,6 +983,7 @@
       const response = await window.fuzzer.run({
         mode, host: localMode ? 'localhost' : host, port, scenarioNames, delay, timeout,
         pcapFile: pcapFile || null,
+        mergePcap: !!pcapFile,
         verbose,
         protocol: activeProtocol,
         dut,
@@ -1148,8 +1149,8 @@
       const configResult = await window.fuzzer.distributedConfigure({
         clientScenarios: clientScenariosFinal.length > 0 ? clientScenariosFinal : null,
         serverScenarios: serverScenariosFinal.length > 0 ? serverScenariosFinal : null,
-        clientConfig: { host, port, delay, timeout, workers, protocol: activeProtocol, dut, pcapFile: pcapFile || null, baseline: baselineCheck.checked },
-        serverConfig: { hostname: host, port, delay, timeout, workers: 1, protocol: activeProtocol, dut, pcapFile: pcapFile || null, baseline: baselineCheck.checked },
+        clientConfig: { host, port, delay, timeout, workers, protocol: activeProtocol, dut, pcapFile: pcapFile || null, mergePcap: !!pcapFile, baseline: baselineCheck.checked },
+        serverConfig: { hostname: host, port, delay, timeout, workers: 1, protocol: activeProtocol, dut, pcapFile: pcapFile || null, mergePcap: !!pcapFile, baseline: baselineCheck.checked },
       });
 
       if (configResult.error) {
