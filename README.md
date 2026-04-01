@@ -609,6 +609,41 @@ Monitor a Palo Alto Networks (PAN-OS) firewall during fuzzing to detect crashes 
 - **Distributed**: Remote agent orchestration across VMs
 - **DUT**: Firewall monitoring during tests
 
+### Scenario Selection Controls
+
+#### Global Select menu (`Select ▾` button)
+
+A dropdown above the scenario list provides bulk selection across all visible scenarios:
+
+| Option | Behavior |
+|--------|----------|
+| **Select All** | Checks all enabled scenarios in the current protocol tab |
+| **Select Fuzz** | Checks only attack/malformed scenarios (fuzz traffic) |
+| **Select Clean** | Checks only well-behaved and diagnostic scenarios (clean traffic) |
+| **Deselect All** | Unchecks all scenarios |
+
+**Fuzz vs Clean distinction:**
+
+Each scenario is classified as either *fuzz* or *clean* based on its category:
+
+- **Fuzz** — scenarios that send intentionally malformed, violating, or attack traffic. This covers the majority of categories: TLS A–Y, HTTP/2 AA–AG and AJ–AL, QUIC QA–QL, Raw TCP RA–RH.
+- **Clean** — scenarios that send well-behaved or diagnostic traffic. These include:
+  - Well-behaved counterpart scenarios (TLS `Z`, HTTP/2 `AH`, QUIC `QZ`) used internally by distributed mode
+  - TLS compatibility scan scenarios (`SCAN`, `QSCAN`) — probing cipher suites, protocol versions, and named groups
+  - Firewall and detection probe categories (`PAN`, `PAN-PQC`, `FW`, `SB`, `FV` and their QUIC equivalents `QM`, `QN`, `QO`)
+
+#### Per-category controls
+
+Each category header has three inline buttons for fine-grained control:
+
+| Button | Behavior |
+|--------|----------|
+| **Only** | Deselects all scenarios across every category, then selects all enabled scenarios in this category only |
+| **All** | Selects all enabled scenarios in this category (other categories are unaffected) |
+| **None** | Deselects all scenarios in this category (other categories are unaffected) |
+
+Clicking the category header itself collapses or expands the scenario list for that category.
+
 ---
 
 ## Project Structure
