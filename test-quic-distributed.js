@@ -37,7 +37,7 @@ function httpGet(port, path) {
   });
 }
 
-async function waitForDone(port, total, timeout = 1800000) {
+async function waitForDone(port, total, timeout = 7200000) {
   const start = Date.now();
   let lastPct = -1;
   while (Date.now() - start < timeout) {
@@ -110,26 +110,27 @@ async function run() {
     allResults.push(...r2);
     console.log(`  Done: ${r2.length} results`);
 
-    // ── Batch 3: Adapted TLS (QG-QK) — sample ──
-    const adaptedCats = ['QG','QH','QI','QJ','QK'];
-    const adaptedAll = adaptedCats.flatMap(c => byCategory[c] || []);
-    // Take every Nth to get a representative sample of ~20
-    const sampleSize = 20;
-    const step = Math.max(1, Math.floor(adaptedAll.length / sampleSize));
-    const adaptedSample = adaptedAll.filter((_, i) => i % step === 0);
-    console.log(`\n── BATCH 3: Adapted TLS sample (${adaptedSample.length}/${adaptedAll.length} scenarios) ──`);
-    const r3 = await runBatch(AGENT_PORT, actualPort, adaptedSample);
-    allResults.push(...r3);
-    console.log(`  Done: ${r3.length} results`);
+    // ── Batch 3: Adapted TLS (QG-QK) — full coverage, per-category ──
+    const adaptedCats = ['QG','QH','QJ','QK'];
+    for (const cat of adaptedCats) {
+      const catNames = byCategory[cat] || [];
+      if (catNames.length === 0) continue;
+      console.log(`\n── BATCH 3/${cat}: Adapted TLS category ${cat} (${catNames.length} scenarios) ──`);
+      const r = await runBatch(AGENT_PORT, actualPort, catNames);
+      allResults.push(...r);
+      console.log(`  Done: ${r.length} results`);
+    }
 
-    // ── Batch 4: PAN/QO/QSCAN — sample ──
+    // ── Batch 4: PAN/QO/QSCAN — full coverage, per-category ──
     const scanCats = ['PAN','QO','QSCAN'];
-    const scanAll = scanCats.flatMap(c => byCategory[c] || []);
-    const scanSample = scanAll.filter((_, i) => i % Math.max(1, Math.floor(scanAll.length / 30)) === 0);
-    console.log(`\n── BATCH 4: Scan/probe sample (${scanSample.length}/${scanAll.length} scenarios) ──`);
-    const r4 = await runBatch(AGENT_PORT, actualPort, scanSample);
-    allResults.push(...r4);
-    console.log(`  Done: ${r4.length} results`);
+    for (const cat of scanCats) {
+      const catNames = byCategory[cat] || [];
+      if (catNames.length === 0) continue;
+      console.log(`\n── BATCH 4/${cat}: Scan/probe category ${cat} (${catNames.length} scenarios) ──`);
+      const r = await runBatch(AGENT_PORT, actualPort, catNames);
+      allResults.push(...r);
+      console.log(`  Done: ${r.length} results`);
+    }
 
     // ═══════════════════════════════════════════════════
     // ANALYSIS
