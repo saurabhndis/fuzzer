@@ -30,6 +30,7 @@ const USAGE = `
   Direct-run options:
     --scenario <name|all>   Run specific scenario or all client scenarios
     --category <A-Z|RA-RG>  Run all scenarios in a category
+    --ingest-pcap <file>    Dynamically create a scenario from a given PCAP file
     --protocol <tls|raw-tcp|h2|quic> Protocol type (default: tls)
     --delay <ms>            Delay between actions (default: 100)
     --timeout <ms>          Connection timeout (default: 5000)
@@ -64,7 +65,16 @@ function parseArgs(argv) {
 
 function getScenarios(args, useRawTcp, protocol) {
   let scenarios;
-  if (args.category) {
+  if (args['ingest-pcap']) {
+    const { parsePcapToScenario } = require('./lib/pcap-parser');
+    try {
+      const scenario = parsePcapToScenario(args['ingest-pcap']);
+      scenarios = [scenario];
+    } catch (err) {
+      console.error(`Failed to ingest PCAP: ${err.message}`);
+      process.exit(1);
+    }
+  } else if (args.category) {
     const cat = args.category.toUpperCase();
     if (useRawTcp) scenarios = getTcpScenariosByCategory(cat);
     else if (protocol === 'h2') scenarios = getHttp2ScenariosByCategory(cat);

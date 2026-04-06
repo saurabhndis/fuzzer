@@ -33,6 +33,7 @@ const USAGE = `
     --json                  Output results as JSON
     --pcap <file.pcap>      Record packets to PCAP file
     --merge-pcap            Merge all scenarios into a single PCAP file
+    --ingest-pcap <file>    Dynamically create a scenario from a given PCAP file
     --no-baseline           Skip OpenSSL/baseline comparison testing
 
   Examples:
@@ -157,7 +158,16 @@ async function main() {
 
     // Determine which scenarios to run
     let scenarios;
-    if (args.category) {
+    if (args['ingest-pcap']) {
+      const { parsePcapToScenario } = require('./lib/pcap-parser');
+      try {
+        const scenario = parsePcapToScenario(args['ingest-pcap']);
+        scenarios = [scenario];
+      } catch (err) {
+        console.error(`Failed to ingest PCAP: ${err.message}`);
+        process.exit(1);
+      }
+    } else if (args.category) {
       if (useRawTcp) scenarios = getTcpScenariosByCategory(args.category);
       else if (protocol === 'h2') scenarios = getHttp2ScenariosByCategory(args.category);
       else if (protocol === 'quic') scenarios = getQuicScenariosByCategory(args.category);
