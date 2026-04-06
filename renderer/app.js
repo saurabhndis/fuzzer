@@ -1123,6 +1123,12 @@
       apiKey: dutApiKeyInput.value.trim(),
     } : null;
 
+    const isDutValid = dut && dut.ip && (
+      (dut.authType === 'password' && dut.user && dut.pass) ||
+      (dut.authType === 'apikey' && dut.apiKey)
+    );
+    document.body.classList.toggle('dut-active', Boolean(isDutValid));
+
     setRunning(true);
     results = [];
     logFileHeader = false;
@@ -1448,7 +1454,7 @@
       <td><span class="status-badge status-${status}">${status}</span>${downBadge}</td>
       <td style="font-size: 11px; color: var(--text-secondary);${noBaseline ? ' opacity: 0.35;' : ''}">${noBaseline ? (isH2 ? 'N/A (HTTP/2)' : 'N/A (QUIC)') : _escHtml(baseline)}</td>
       <td>${healthHtml}</td>
-      <td>${firewallHtml}</td>
+      <td class="fw-col">${firewallHtml}</td>
       <td>${findingHtml}</td>
       <td><span class="verdict-badge verdict-${verdictCls}" title="${_escHtml(verdictTitle)}">${verdict}</span></td>
       <td>${_escHtml(response)}</td>

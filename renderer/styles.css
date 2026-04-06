@@ -552,6 +552,10 @@ body {
 
 .results-table .num { color: var(--text-muted); width: 30px; }
 
+/* Firewall column visibility */
+.results-table .fw-col { display: none; }
+body.dut-active .results-table .fw-col { display: table-cell; }
+
 .status-badge {
   display: inline-block;
   padding: 2px 8px;
