@@ -1343,10 +1343,28 @@
     return `<span class="probe-badge ${cls}" title="${_escHtml(title)}">Ping ${label}</span>`;
   }
 
+  window.showFirewallLog = function(rawLog) {
+    const modal = document.getElementById('fwModalOverlay');
+    const content = document.getElementById('fwModalContent');
+    if (modal && content) {
+      // Try to format the raw log as JSON if it's an object, otherwise display the string
+      let displayStr = rawLog;
+      if (typeof rawLog === 'object') {
+          displayStr = JSON.stringify(rawLog, null, 2);
+      }
+      content.textContent = displayStr || 'No raw log data available.';
+      modal.style.display = 'flex';
+    }
+  };
+
   function renderFirewallCell(fwResult) {
     if (!fwResult) return '<span class="finding-badge finding-INFO">—</span>';
     const actionColor = fwResult.action === 'allow' ? 'probe-ok' : 'probe-fail';
-    return `<span class="probe-badge ${actionColor}" title="App: ${fwResult.appId} | Reason: ${fwResult.endReason}">${fwResult.action.toUpperCase()}</span>`;
+    
+    // We encode the fwResult as a base64 string to safely pass it in the onclick attribute
+    const encodedLog = btoa(unescape(encodeURIComponent(JSON.stringify(fwResult.raw || fwResult))));
+    
+    return `<span class="probe-badge ${actionColor} clickable" style="cursor:pointer;" title="App: ${fwResult.appId} | Reason: ${fwResult.endReason} | Click for details" onclick="showFirewallLog(JSON.parse(decodeURIComponent(escape(atob('${encodedLog}')))))">${fwResult.action.toUpperCase()}</span>`;
   }
 
   function renderFindingCell(finding) {
