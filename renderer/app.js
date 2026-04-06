@@ -1343,6 +1343,12 @@
     return `<span class="probe-badge ${cls}" title="${_escHtml(title)}">Ping ${label}</span>`;
   }
 
+  function renderFirewallCell(fwResult) {
+    if (!fwResult) return '<span class="finding-badge finding-INFO">—</span>';
+    const actionColor = fwResult.action === 'allow' ? 'probe-ok' : 'probe-fail';
+    return `<span class="probe-badge ${actionColor}" title="App: ${fwResult.appId} | Reason: ${fwResult.endReason}">${fwResult.action.toUpperCase()}</span>`;
+  }
+
   function renderFindingCell(finding) {
     if (!finding) return '<span class="finding-badge finding-INFO">—</span>';
     const title = finding.reason ? _escHtml(finding.reason) : '';
@@ -1416,6 +1422,7 @@
     const downBadge = hostDown ? '<span class="host-down-badge" title="Target became unreachable — possible crash/DoS">DOWN</span>' : '';
     const healthHtml = renderHealthCell(result.probe, hostDown);
     const findingHtml = renderFindingCell(result.finding);
+    const firewallHtml = renderFirewallCell(result.firewallResult);
     tr.innerHTML = `
       <td class="num">${idx}</td>
       <td>${_escHtml(scenario)}</td>
@@ -1423,6 +1430,7 @@
       <td><span class="status-badge status-${status}">${status}</span>${downBadge}</td>
       <td style="font-size: 11px; color: var(--text-secondary);${noBaseline ? ' opacity: 0.35;' : ''}">${noBaseline ? (isH2 ? 'N/A (HTTP/2)' : 'N/A (QUIC)') : _escHtml(baseline)}</td>
       <td>${healthHtml}</td>
+      <td>${firewallHtml}</td>
       <td>${findingHtml}</td>
       <td><span class="verdict-badge verdict-${verdictCls}" title="${_escHtml(verdictTitle)}">${verdict}</span></td>
       <td>${_escHtml(response)}</td>
