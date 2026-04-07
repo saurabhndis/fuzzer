@@ -202,7 +202,7 @@ ipcMain.handle('run-fuzzer', async (event, opts) => {
     }
     return s;
   };
-  const scenarios = (scenarioNames || []).map(lookup).filter(Boolean);
+  const scenarios = opts.scenario ? [opts.scenario] : (scenarioNames || []).map(lookup).filter(Boolean);
 
   // ── Client mode ───────────────────────────────────────────────────────────────
   if (mode === 'client') {
@@ -777,6 +777,131 @@ ipcMain.handle('save-pcap-dialog', async () => {
     filters: [{ name: 'PCAP Files', extensions: ['pcap'] }],
   });
   return result.canceled ? null : result.filePath;
+});
+
+// File open dialog for PCAP ingestion
+ipcMain.handle('open-pcap-dialog', async () => {
+  const result = await dialog.showOpenDialog(mainWindow, {
+    title: 'Open PCAP File for Ingestion',
+    filters: [{ name: 'PCAP Files', extensions: ['pcap'] }],
+    properties: ['openFile'],
+  });
+  return result.canceled ? null : result.filePaths[0];
+});
+
+// Analyze PCAP and return scenario interpretation
+ipcMain.handle('analyze-pcap', async (event, filePath, streamIndex) => {
+  const { parsePcapToScenario } = require('./lib/pcap-parser');
+  try {
+    const scenario = parsePcapToScenario(filePath, streamIndex || 0);
+    return { ok: true, scenario };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+});
+
+// Generate a standalone JS script from a scenario
+ipcMain.handle('generate-standalone-script', async (event, scenario) => {
+  const scriptTemplate = `
+const { UnifiedClient } = require('./lib/unified-client');
+const { Logger } = require('./lib/logger');
+
+async function run() {
+  const host = process.argv[2] || 'localhost';
+  const port = parseInt(process.argv[3], 10) || 443;
+  
+  if (!host || !port) {
+    console.log('Usage: node standalone-test.js <host> <port>');
+    process.exit(1);
+  }
+
+  const logger = new Logger({ verbose: true });
+  const client = new UnifiedClient({ host, port, logger });
+
+  const scenario = ${JSON.stringify(scenario, (key, value) => {
+    if (key === 'data' && value && value.type === 'Buffer') {
+      return \`Buffer.from("${Buffer.from(value.data).toString('hex')}", "hex")\`;
+    }
+    return value;
+  }, 2).replace(/"Buffer\.from\(\\"([0-9a-f]+)\\", \\"hex\\"\)"/g, 'Buffer.from("$1", "hex")')};
+
+  console.log('━━━ Running Standalone Replay Scenario: ' + scenario.name + ' ━━━');
+  const result = await client.runScenario(scenario);
+  console.log('\\nResult:', result.status, result.verdict);
+  console.log('Response:', result.response);
+  
+  client.close();
+}
+
+run().catch(console.error);
+`;
+  return scriptTemplate;
+});
+
+// Save standalone script to file
+ipcMain.handle('save-standalone-script', async (event, content) => {
+  const result = await dialog.showSaveDialog(mainWindow, {
+    title: 'Save Standalone Test Script',
+    defaultPath: 'standalone-test.js',
+    filters: [{ name: 'JavaScript Files', extensions: ['js'] }],
+  });
+  if (result.canceled || !result.filePath) return { canceled: true };
+  
+  const fs = require('fs');
+  fs.writeFileSync(result.filePath, content);
+  return { ok: true, filePath: result.filePath };
+});
+
+// Add scenario to the fuzzer's library
+ipcMain.handle('add-scenario-to-library', async (event, scenario) => {
+  const fs = require('fs');
+  const path = require('path');
+  const libraryPath = path.join(__dirname, 'lib', 'app-protocol-scenarios.js');
+  
+  try {
+    let content = fs.readFileSync(libraryPath, 'utf8');
+    
+    // We want to insert it before the module.exports block
+    const exportLine = 'module.exports = {';
+    const scenarioStr = `
+APP_SCENARIOS.push({
+  name: '${scenario.name}',
+  category: '${scenario.category || 'APP'}',
+  description: '${scenario.description}',
+  side: '${scenario.side}',
+  actions: [
+${(scenario.actions || []).map(a => {
+      if (a.type === 'send') {
+        const dataHex = a.data.data ? Buffer.from(a.data.data).toString('hex') : Buffer.from(a.data).toString('hex');
+        return `    { type: 'send', data: Buffer.from('${dataHex}', 'hex'), label: '${a.label || 'Replayed payload'}' },`;
+      } else if (a.type === 'recv') {
+        return `    { type: 'recv', timeout: ${a.timeout || 3000} },`;
+      }
+      return '';
+    }).filter(Boolean).join('\n')}
+  ],
+  serverActions: [
+${(scenario.serverActions || []).map(a => {
+      if (a.type === 'send') {
+        const dataHex = a.data.data ? Buffer.from(a.data.data).toString('hex') : Buffer.from(a.data).toString('hex');
+        return `    { type: 'send', data: Buffer.from('${dataHex}', 'hex'), label: '${a.label || 'Replayed payload'}' },`;
+      } else if (a.type === 'recv') {
+        return `    { type: 'recv', timeout: ${a.timeout || 3000} },`;
+      }
+      return '';
+    }).filter(Boolean).join('\n')}
+  ],
+  expected: '${scenario.expected || 'PASSED'}',
+  expectedReason: '${scenario.expectedReason || 'Imported from PCAP'}',
+});
+`;
+    
+    content = content.replace(exportLine, scenarioStr + '\n' + exportLine);
+    fs.writeFileSync(libraryPath, content);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
 });
 
 // Save Log to specific file path

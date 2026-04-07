@@ -31,6 +31,8 @@ const USAGE = `
     --scenario <name|all>   Run specific scenario or all client scenarios
     --category <A-Z|RA-RG>  Run all scenarios in a category
     --ingest-pcap <file>    Dynamically create a scenario from a given PCAP file
+    --pcap-stream <index>   Select a specific stream from the PCAP (default: 0)
+    --list-streams          List all streams found in the PCAP
     --protocol <tls|raw-tcp|h2|quic> Protocol type (default: tls)
     --delay <ms>            Delay between actions (default: 100)
     --timeout <ms>          Connection timeout (default: 5000)
@@ -66,9 +68,20 @@ function parseArgs(argv) {
 function getScenarios(args, useRawTcp, protocol) {
   let scenarios;
   if (args['ingest-pcap']) {
-    const { parsePcapToScenario } = require('./lib/pcap-parser');
+    const { parsePcapToScenario, readPcap, groupStreams, analyzeStream } = require('./lib/pcap-parser');
     try {
-      const scenario = parsePcapToScenario(args['ingest-pcap']);
+      const streamIdx = parseInt(args['pcap-stream'] || 0);
+      if (args['list-streams']) {
+        const packets = readPcap(args['ingest-pcap']);
+        const streams = groupStreams(packets);
+        console.log(`\n  Streams found in ${args['ingest-pcap']}:\n`);
+        streams.forEach((s, idx) => {
+          const analysis = analyzeStream(s);
+          console.log(`    [${idx}] ${analysis.description}`);
+        });
+        process.exit(0);
+      }
+      const scenario = parsePcapToScenario(args['ingest-pcap'], streamIdx);
       scenarios = [scenario];
     } catch (err) {
       console.error(`Failed to ingest PCAP: ${err.message}`);
@@ -149,7 +162,12 @@ async function primaryMain(args) {
     process.exit(1);
   }
 
-  const protocol = args.protocol || 'tls';
+  let protocol = args.protocol || 'tls';
+  let scenarios = getScenarios(args, (protocol === 'raw-tcp'), protocol);
+
+  if (scenarios.length === 1 && scenarios[0].protocol) {
+      protocol = scenarios[0].protocol;
+  }
   const useRawTcp = protocol === 'raw-tcp';
 
   if (useRawTcp && !isRawAvailable()) {
@@ -158,7 +176,6 @@ async function primaryMain(args) {
     console.error('  Raw TCP scenarios will be skipped.\n');
   }
 
-  const scenarios = getScenarios(args, useRawTcp, protocol);
   const workerCount = parseInt(args.workers) || os.cpus().length;
 
   console.log(`
@@ -229,15 +246,18 @@ async function workerMain(args) {
   const delay = parseInt(args.delay) || 100;
   const timeout = parseInt(args.timeout) || 5000;
   let pcapFile = args.pcap || null;
-  const protocol = args.protocol || 'tls';
-  const useRawTcp = protocol === 'raw-tcp';
+  let protocol = args.protocol || 'tls';
 
   if (pcapFile) {
     pcapFile = pcapFile.replace(/\.pcap$/i, '') + `.worker-${process.pid}.pcap`;
   }
 
   const logger = new Logger({ verbose: args.verbose, json: args.json });
-  const scenarios = getScenarios(args, useRawTcp, protocol);
+  let scenarios = getScenarios(args, (protocol === 'raw-tcp'), protocol);
+  if (scenarios.length === 1 && scenarios[0].protocol) {
+      protocol = scenarios[0].protocol;
+  }
+  const useRawTcp = protocol === 'raw-tcp';
 
   const client = new UnifiedClient({ host, port, timeout, delay, logger, pcapFile });
 

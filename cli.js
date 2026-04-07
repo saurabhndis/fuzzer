@@ -34,6 +34,8 @@ const USAGE = `
     --pcap <file.pcap>      Record packets to PCAP file
     --merge-pcap            Merge all scenarios into a single PCAP file
     --ingest-pcap <file>    Dynamically create a scenario from a given PCAP file
+    --pcap-stream <index>   Select a specific stream from the PCAP (default: 0)
+    --list-streams          List all streams found in the PCAP
     --no-baseline           Skip OpenSSL/baseline comparison testing
 
   Examples:
@@ -137,7 +139,7 @@ async function main() {
   const timeout = parseInt(args.timeout) || 5000;
   const pcapFile = args.pcap || null;
   const mergePcap = args['merge-pcap'] || false;
-  const protocol = args.protocol || 'tls';
+  let protocol = args.protocol || 'tls';
 
   if (command === 'client') {
     const host = args._[1];
@@ -159,10 +161,24 @@ async function main() {
     // Determine which scenarios to run
     let scenarios;
     if (args['ingest-pcap']) {
-      const { parsePcapToScenario } = require('./lib/pcap-parser');
+      const { parsePcapToScenario, readPcap, groupStreams, analyzeStream } = require('./lib/pcap-parser');
       try {
-        const scenario = parsePcapToScenario(args['ingest-pcap']);
+        const streamIdx = parseInt(args['pcap-stream'] || 0);
+        if (args['list-streams']) {
+          const packets = readPcap(args['ingest-pcap']);
+          const streams = groupStreams(packets);
+          console.log(`\n  Streams found in ${args['ingest-pcap']}:\n`);
+          streams.forEach((s, idx) => {
+            const analysis = analyzeStream(s);
+            console.log(`    [${idx}] ${analysis.description}`);
+          });
+          process.exit(0);
+        }
+        const scenario = parsePcapToScenario(args['ingest-pcap'], streamIdx);
         scenarios = [scenario];
+        protocol = scenario.protocol || protocol;
+        console.log(`\x1b[32m  Ingested scenario from PCAP: ${scenario.description}\x1b[0m`);
+        console.log(`\x1b[90m  Explanation: ${scenario.explanation}\x1b[0m\n`);
       } catch (err) {
         console.error(`Failed to ingest PCAP: ${err.message}`);
         process.exit(1);

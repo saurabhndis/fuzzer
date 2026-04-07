@@ -69,6 +69,19 @@
   const selectMenuBtn = document.getElementById('selectMenuBtn');
   const selectMenu = document.getElementById('selectMenu');
 
+  // PCAP Ingestion elements
+  const ingestPcapBtn = document.getElementById('ingestPcapBtn');
+  const pcapAnalysisOverlay = document.getElementById('pcapAnalysisOverlay');
+  const pcapScenarioName = document.getElementById('pcapScenarioName');
+  const pcapScenarioDesc = document.getElementById('pcapScenarioDesc');
+  const pcapActionsList = document.getElementById('pcapActionsList');
+  const pcapRunNowBtn = document.getElementById('pcapRunNowBtn');
+  const pcapGenScriptBtn = document.getElementById('pcapGenScriptBtn');
+  const pcapAddLibBtn = document.getElementById('pcapAddLibBtn');
+  const pcapAnalyzeBtn = document.getElementById('pcapAnalyzeBtn');
+  const pcapStreamId = document.getElementById('pcapStreamId');
+  const closePcapModal = document.getElementById('closePcapModal');
+
   // State
   let running = false;
   let pcapFile = null;
@@ -78,6 +91,7 @@
   let pendingPackets = [];
   let allScenarios = {};
   let categories = {};
+  let currentPcapScenario = null;
   let defaultDisabled = new Set();
   let allH2Scenarios = {};
   let h2Categories = {};
@@ -884,13 +898,116 @@
     }
   });
 
-  // Run
-  runBtn.addEventListener('click', async () => {
-    if (running) return;
+  // --- PCAP Ingestion Logic ---
+  let ingestedPcapPath = null;
 
-    if (distributedMode) {
-      return runDistributed();
+  async function performPcapAnalysis(path, streamIdx) {
+    addLogEntry('info', `Analyzing PCAP stream ${streamIdx}: ${path}...`);
+    const result = await window.fuzzer.analyzePcap(path, streamIdx);
+    if (!result.ok) {
+      addLogEntry('error', `PCAP Analysis failed: ${result.error}`);
+      alert(`PCAP Analysis failed: ${result.error}`);
+      return;
     }
+
+    currentPcapScenario = result.scenario;
+    pcapScenarioName.value = currentPcapScenario.name;
+    pcapScenarioDesc.value = currentPcapScenario.description;
+    
+    // Visualize actions
+    pcapActionsList.innerHTML = currentPcapScenario.actions().map(a => {
+      const label = a.label ? `<span style="color:var(--primary); margin-left:10px;">(${a.label})</span>` : '';
+      if (a.type === 'send') {
+        const bytes = a.data.data ? a.data.data.length : a.data.length;
+        return `<div style="margin-bottom:4px;">→ <strong>SEND</strong> ${bytes} bytes ${label}</div>`;
+      } else if (a.type === 'recv') {
+        return `<div style="margin-bottom:4px;">← <strong>RECV</strong> (timeout: ${a.timeout}ms) ${label}</div>`;
+      }
+      return '';
+    }).join('');
+
+    pcapAnalysisOverlay.style.display = 'flex';
+  }
+
+  ingestPcapBtn.addEventListener('click', async () => {
+    const path = await window.fuzzer.openPcapDialog();
+    if (!path) return;
+    ingestedPcapPath = path;
+    pcapStreamId.value = 0;
+    await performPcapAnalysis(path, 0);
+  });
+
+  pcapAnalyzeBtn.addEventListener('click', async () => {
+    if (!ingestedPcapPath) return;
+    const streamIdx = parseInt(pcapStreamId.value, 10) || 0;
+    await performPcapAnalysis(ingestedPcapPath, streamIdx);
+  });
+
+  closePcapModal.addEventListener('click', () => {
+    pcapAnalysisOverlay.style.display = 'none';
+    currentPcapScenario = null;
+  });
+
+  pcapRunNowBtn.addEventListener('click', () => {
+    if (!currentPcapScenario) return;
+    currentPcapScenario.name = pcapScenarioName.value.trim();
+    currentPcapScenario.description = pcapScenarioDesc.value.trim();
+    
+    // Evaluate actions before running
+    const evaluatedActions = (currentPcapScenario.clientActions || currentPcapScenario.actions)({ hostname: hostInput.value.trim() });
+    const serverActions = currentPcapScenario.serverActions ? currentPcapScenario.serverActions({}) : [];
+    
+    const runScenario = { 
+        ...currentPcapScenario, 
+        actions: () => evaluatedActions,
+        serverActions: () => serverActions
+    };
+
+    pcapAnalysisOverlay.style.display = 'none';
+    startFuzzing(runScenario);
+  });
+
+  pcapGenScriptBtn.addEventListener('click', async () => {
+    if (!currentPcapScenario) return;
+    currentPcapScenario.name = pcapScenarioName.value.trim();
+    currentPcapScenario.description = pcapScenarioDesc.value.trim();
+    
+    // Evaluate for script generation
+    const evaluated = {
+        ...currentPcapScenario,
+        actions: currentPcapScenario.actions({ hostname: hostInput.value.trim() })
+    };
+    const script = await window.fuzzer.generateStandaloneScript(evaluated);
+    const saveResult = await window.fuzzer.saveStandaloneScript(script);
+    if (saveResult.ok) {
+      addLogEntry('info', `Standalone script saved: ${saveResult.filePath}`);
+    }
+  });
+
+  pcapAddLibBtn.addEventListener('click', async () => {
+    if (!currentPcapScenario) return;
+    currentPcapScenario.name = pcapScenarioName.value.trim();
+    currentPcapScenario.description = pcapScenarioDesc.value.trim();
+    
+    // Evaluate actions into plain arrays for library storage
+    const evaluated = {
+        ...currentPcapScenario,
+        actions: (currentPcapScenario.clientActions || currentPcapScenario.actions)({ hostname: hostInput.value.trim() }),
+        serverActions: currentPcapScenario.serverActions ? currentPcapScenario.serverActions({}) : []
+    };
+
+    const result = await window.fuzzer.addScenarioToLibrary(evaluated);
+    if (result.ok) {
+      addLogEntry('info', `Scenario "${currentPcapScenario.name}" added to library.`);
+      pcapAnalysisOverlay.style.display = 'none';
+      loadScenarios(); // Refresh the list
+    } else {
+      addLogEntry('error', `Failed to add scenario to library: ${result.error}`);
+    }
+  });
+
+  async function startFuzzing(customScenario = null) {
+    if (running) return;
 
     const mode = modeSelect.value;
     const host = hostInput.value.trim();
@@ -898,42 +1015,19 @@
     const delay = parseInt(delayInput.value, 10) || 100;
     const timeout = parseInt(timeoutInput.value, 10) || 5000;
     const verbose = verboseCheck.checked;
-    
-    let workers = parseInt(workersInput.value, 10) || 1;
-    const maxWorkers = window.fuzzer.cpuCount || 10;
-    if (workers > maxWorkers) {
-      alert(`Requested threads (${workers}) exceed the available CPU cores (${maxWorkers}).`);
-      workersInput.value = maxWorkers;
-      return;
-    }
-    if (workers < 1) {
-      workers = 1;
-      workersInput.value = 1;
-    }
-
-    const dut = dutCheck.checked ? {
-      ip: dutIpInput.value.trim(),
-      authType: dutAuthType.value,
-      user: dutUserInput.value.trim(),
-      pass: dutPassInput.value,
-      apiKey: dutApiKeyInput.value.trim(),
-    } : null;
+    const isPassiveServer = (activeProtocol === 'h2' || activeProtocol === 'quic') && mode === 'server' && getSelectedScenarios().length === 0;
 
     if (!port || port < 1 || port > 65535) {
       addLogEntry('error', 'Invalid port number');
       return;
     }
 
-    // HTTP/2 or QUIC passive server mode: no scenarios needed (just starts the server)
-    const isPassiveServer = (activeProtocol === 'h2' || activeProtocol === 'quic') && mode === 'server' && getSelectedScenarios().length === 0;
-
-    if (!isPassiveServer) {
+    if (!customScenario && !isPassiveServer) {
       if (mode === 'client' && !host && !localMode) {
         addLogEntry('error', 'Please enter a hostname');
         return;
       }
       if ((activeProtocol !== 'h2' && activeProtocol !== 'quic') || mode !== 'server') {
-        // For non-server-mode or TLS, require at least one scenario
         const scenarioNames = getSelectedScenarios();
         if (scenarioNames.length === 0) {
           addLogEntry('error', 'No scenarios selected');
@@ -942,9 +1036,20 @@
       }
     }
 
-    const scenarioNames = getSelectedScenarios();
+    let workers = parseInt(workersInput.value, 10) || 1;
+    const maxWorkers = window.fuzzer.cpuCount || 10;
+    if (workers > maxWorkers) {
+      workers = maxWorkers;
+      workersInput.value = maxWorkers;
+    }
+    if (workers < 1) {
+      workers = 1;
+      workersInput.value = 1;
+    }
+
+    const scenarioNames = customScenario ? [] : getSelectedScenarios();
     const loopCount = Math.max(1, Math.min(1000, parseInt(loopCountInput.value, 10) || 1));
-    const totalScenarios = (scenarioNames.length || (isPassiveServer ? 1 : 0)) * loopCount;
+    const totalScenarios = (customScenario ? 1 : (scenarioNames.length || (isPassiveServer ? 1 : 0))) * loopCount;
 
     setRunning(true);
     results = [];
@@ -957,31 +1062,33 @@
     progressBar.style.width = '0%';
     progressText.textContent = `0 / ${totalScenarios}`;
 
-    // Open firewall monitor popup in DUT mode
+    const dut = dutCheck.checked ? {
+      ip: dutIpInput.value.trim(),
+      authType: dutAuthType.value,
+      user: dutUserInput.value.trim(),
+      pass: dutPassInput.value,
+      apiKey: dutApiKeyInput.value.trim(),
+    } : null;
+
+    const isDutValid = dut && dut.ip && (
+      (dut.authType === 'password' && dut.user && dut.pass) ||
+      (dut.authType === 'apikey' && dut.apiKey)
+    );
+    document.body.classList.toggle('dut-active', Boolean(isDutValid));
+
     if (dut && dut.ip) {
       window.fuzzer.openFirewall(dut);
     }
 
-    // Subscribe to events
-    unsubPacket = window.fuzzer.onPacket((evt) => {
-      handlePacketEvent(evt);
-    });
-
-    unsubResult = window.fuzzer.onResult((result) => {
-      handleResult(result);
-    });
-
-    unsubProgress = window.fuzzer.onProgress((prog) => {
-      handleProgress(prog);
-    });
-
-    unsubReport = window.fuzzer.onReport((report) => {
-      lastReport = report;
-    });
+    unsubPacket = window.fuzzer.onPacket(handlePacketEvent);
+    unsubResult = window.fuzzer.onResult(handleResult);
+    unsubProgress = window.fuzzer.onProgress(handleProgress);
+    unsubReport = window.fuzzer.onReport((report) => { lastReport = report; });
 
     try {
       const response = await window.fuzzer.run({
-        mode, host: localMode ? 'localhost' : host, port, scenarioNames, delay, timeout,
+        mode, host: localMode ? 'localhost' : host, port, scenarioNames, 
+        scenario: customScenario, delay, timeout,
         pcapFile: pcapFile || null,
         mergePcap: !!pcapFile,
         verbose,
@@ -1006,6 +1113,16 @@
       if (unsubReport) { unsubReport(); unsubReport = null; }
       progressContainer.style.display = 'none';
       showSummary();
+    }
+  }
+
+  // Run
+  runBtn.addEventListener('click', async () => {
+    if (running) return;
+    if (distributedMode) {
+      runDistributed();
+    } else {
+      startFuzzing();
     }
   });
 
