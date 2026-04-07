@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// TLS/TCP Protocol Fuzzer — Standalone Client
+// WireStrike — Standalone Client
 // Run client-side fuzzing scenarios independently against any target
 
 const { UnifiedClient } = require('./lib/unified-client');
@@ -14,7 +14,7 @@ const cluster = require('cluster');
 const os = require('os');
 
 const USAGE = `
-  TLS/TCP Protocol Fuzzer — Client Mode
+  WireStrike — Client Mode
 
   Starts a client agent with an HTTP control channel, or runs
   client-side fuzzing scenarios directly against a target TLS server.
@@ -179,7 +179,7 @@ async function primaryMain(args) {
   const workerCount = parseInt(args.workers) || os.cpus().length;
 
   console.log(`
-  TLS/TCP Protocol Fuzzer — Client
+  WireStrike — Client
 
   Target        ${host}:${port}
   Protocol      ${protocol}

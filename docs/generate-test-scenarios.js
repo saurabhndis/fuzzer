@@ -88,7 +88,7 @@ let html = `<!DOCTYPE html>
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Protocol Fuzzer — Test Scenario Reference</title>
+    <title>WireStrike — Test Scenario Reference</title>
     <style>
         :root {
             --bg: #0f172a;
@@ -447,7 +447,7 @@ html += `
 // Footer
 html += `
         <div class="footer">
-            Protocol Fuzzer — Test Scenario Reference &bull; ${totalScenarios.toLocaleString()} scenarios &bull; Generated ${new Date().toISOString().slice(0,10)} &bull; Auto-generated from scenario definitions
+            WireStrike — Test Scenario Reference &bull; ${totalScenarios.toLocaleString()} scenarios &bull; Generated ${new Date().toISOString().slice(0,10)} &bull; Auto-generated from scenario definitions
         </div>
     </div>
 </body>

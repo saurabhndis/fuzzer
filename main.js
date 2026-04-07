@@ -42,14 +42,14 @@ function createWindow() {
     height: 950,
     minWidth: 900,
     minHeight: 700,
-    backgroundColor: '#0d1117',
+    backgroundColor: '#f8fafc',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: false,
     },
-    title: 'Protocol Fuzzer',
+    title: 'WireStrike',
   });
 
   mainWindow.loadFile(path.join(__dirname, 'renderer', 'index.html'));
@@ -1289,7 +1289,7 @@ function createFirewallWindow(dutConfig) {
       nodeIntegration: false,
       sandbox: false,
     },
-    backgroundColor: '#0f1117',
+    backgroundColor: '#f8fafc',
     title: 'DUT Firewall Monitor',
     show: false,
   });

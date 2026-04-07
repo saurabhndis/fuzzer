@@ -1,7 +1,7 @@
 {
-  "name": "tls-tcp-fuzzer",
+  "name": "wirestrike",
   "version": "1.0.0",
-  "description": "TLS/TCP Protocol Fuzzer - Test middlebox and TLS implementation behavior with crafted packets",
+  "description": "WireStrike — Protocol Security Testing Suite for TLS, HTTP/2, QUIC & TCP",
   "main": "main.js",
   "scripts": {
     "start": "electron .",

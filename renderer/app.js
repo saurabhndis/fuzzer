@@ -1,4 +1,4 @@
-// TLS/TCP Protocol Fuzzer — Renderer
+// WireStrike — Protocol Security Testing Suite — Renderer
 (function () {
   'use strict';
 
@@ -749,7 +749,7 @@
       const warning = document.createElement('div');
       warning.className = 'tcp-warning';
       warning.innerHTML = '<strong>Raw sockets not available.</strong> Requires CAP_NET_RAW on Linux.<br>Run: <code>sudo setcap cap_net_raw+ep $(which node)</code>';
-      warning.style.cssText = 'padding: 12px; margin: 8px; background: #3a2a00; border: 1px solid #665500; border-radius: 6px; color: #ffcc00; font-size: 12px;';
+      warning.style.cssText = 'padding: 12px; margin: 8px; background: #fef3c7; border: 1px solid #f59e0b; border-radius: 6px; color: #92400e; font-size: 12px;';
       scenariosList.appendChild(warning);
     }
 
@@ -1038,7 +1038,7 @@
     for (const e of handshakeAnalysis) {
       const isAlert = e.msg === 'Alert';
       const arrow = e.dir === 'c2s' ? '&rarr;' : '&larr;';
-      const arrowColor = isAlert ? '#f85149' : (e.dir === 'c2s' ? '#58a6ff' : '#3fb950');
+      const arrowColor = isAlert ? '#ef4444' : (e.dir === 'c2s' ? '#6366f1' : '#22c55e');
       const dirLabel = e.dir === 'c2s' ? 'Client' : 'Server';
 
       if (e.msg === 'ClientHello') {
@@ -1110,7 +1110,7 @@
         parts.push(`<div style="margin-bottom:8px;"><span style="color:${arrowColor};font-weight:600;">${arrow} ServerHelloDone</span></div>`);
 
       } else if (e.msg === 'Alert') {
-        const levelColor = e.level === 'fatal' ? '#f85149' : '#d29922';
+        const levelColor = e.level === 'fatal' ? '#ef4444' : '#d97706';
         const levelLabel = e.level.toUpperCase();
         const sender = e.dir === 'c2s' ? 'Client' : 'Server';
         let html = `<div style="margin-bottom:8px;background:rgba(248,81,73,0.08);border-left:3px solid ${levelColor};padding:6px 10px;border-radius:0 4px 4px 0;">`;
@@ -1129,9 +1129,9 @@
     const hasTls12Hs = clientActions.some(a => a.type === 'tls12Handshake');
     const hasTls13 = clientActions.some(a => a.label && a.label.includes('TLS 1.3'));
     if (hasTls12Hs) {
-      parts.push(`<div style="margin-top:6px;padding:6px 10px;background:rgba(56,139,253,0.08);border-left:3px solid #388bfd;border-radius:0 4px 4px 0;font-size:11px;color:var(--text-secondary);">Replay: ClientHello verbatim (JA3 preserved) + fresh ECDHE key exchange at runtime</div>`);
+      parts.push(`<div style="margin-top:6px;padding:6px 10px;background:rgba(99,102,241,0.06);border-left:3px solid #6366f1;border-radius:0 4px 4px 0;font-size:11px;color:var(--text-secondary);">Replay: ClientHello verbatim (JA3 preserved) + fresh ECDHE key exchange at runtime</div>`);
     } else if (hasTls13) {
-      parts.push(`<div style="margin-top:6px;padding:6px 10px;background:rgba(56,139,253,0.08);border-left:3px solid #388bfd;border-radius:0 4px 4px 0;font-size:11px;color:var(--text-secondary);">Replay: TLS 1.3 ClientHello with fresh key_share (fingerprint preserved)</div>`);
+      parts.push(`<div style="margin-top:6px;padding:6px 10px;background:rgba(99,102,241,0.06);border-left:3px solid #6366f1;border-radius:0 4px 4px 0;font-size:11px;color:var(--text-secondary);">Replay: TLS 1.3 ClientHello with fresh key_share (fingerprint preserved)</div>`);
     }
 
     return parts.join('');
@@ -1820,7 +1820,7 @@
       if (filePath) {
         let content = '';
         if (!logFileHeader) {
-          content += `--- Protocol Fuzzer Run Log: ${new Date().toISOString()} ---\n`;
+          content += `--- WireStrike Run Log: ${new Date().toISOString()} ---\n`;
           content += `--- Verbose Mode: ${verboseCheck.checked ? 'ON' : 'OFF'} ---\n\n`;
           logFileHeader = true;
         }

@@ -4,13 +4,13 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'">
-  <title>Protocol Fuzzer</title>
+  <title>WireStrike</title>
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
   <div class="app">
     <header class="header">
-      <h1>Protocol Fuzzer</h1>
+      <h1>⚡ WireStrike</h1>
       <span class="header-status" id="statusBadge">IDLE</span>
     </header>
 
@@ -90,7 +90,7 @@
     </div>
 
     <!-- DUT Configuration Bar -->
-    <div class="distributed-bar" id="dutBar" style="display:none; background: #1a1f26; border-bottom: 1px solid #30363d;">
+    <div class="distributed-bar" id="dutBar" style="display:none; background: var(--bg-secondary); border-bottom: 1px solid var(--border);">
       <div class="agent-section">
         <span class="agent-label">DUT IP</span>
         <input type="text" id="dutIpInput" class="agent-input" placeholder="e.g. 192.168.1.1" value="">
@@ -155,9 +155,9 @@
           <button id="runBtn" class="btn btn-run">RUN SELECTED</button>
           <button id="rerunFailedBtn" class="btn btn-run" disabled title="Rerun failed tests">RERUN FAILED</button>
           <button id="stopBtn" class="btn btn-stop" disabled>STOP</button>
-          <button id="ingestPcapBtn" class="btn" style="background:linear-gradient(135deg, #818cf8, #a78bfa); color:#fff; font-weight:600; position:relative; padding-left:14px; padding-right:14px;" title="Import test case from Wireshark PCAP capture">
+          <button id="ingestPcapBtn" class="btn" style="background:linear-gradient(135deg, #6366f1, #8b5cf6); color:#fff; font-weight:600; position:relative; padding-left:14px; padding-right:14px; border-radius:8px;" title="Import test case from Wireshark PCAP capture">
             📡 INGEST PCAP
-            <span style="position:absolute; top:-8px; right:-8px; background:linear-gradient(135deg, #f59e0b, #ef4444); color:#fff; font-size:9px; font-weight:700; padding:2px 6px; border-radius:8px; letter-spacing:0.5px;">⭐ NEW</span>
+            <span style="position:absolute; top:-8px; right:-8px; background:linear-gradient(135deg, #f59e0b, #ef4444); color:#fff; font-size:9px; font-weight:700; padding:2px 6px; border-radius:10px; letter-spacing:0.5px; box-shadow:0 2px 6px rgba(239,68,68,0.3);">⭐ NEW</span>
           </button>
           <div class="loop-controls">
             <label>Loop</label>
@@ -227,8 +227,8 @@
   </div>
 
   <!-- PCAP Stream Selection Modal (Step 1) -->
-  <div id="pcapStreamOverlay" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.7); z-index:10001; align-items:center; justify-content:center;">
-    <div style="background:var(--bg-secondary); border:1px solid var(--border); border-radius:8px; width:92%; max-width:900px; max-height:90vh; display:flex; flex-direction:column; box-shadow:0 15px 40px rgba(0,0,0,0.6);">
+  <div id="pcapStreamOverlay" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.3); z-index:10001; align-items:center; justify-content:center;">
+    <div style="background:var(--bg-secondary); border:1px solid var(--border); border-radius:12px; width:92%; max-width:900px; max-height:90vh; display:flex; flex-direction:column; box-shadow:0 15px 40px rgba(0,0,0,0.15);">
       <div style="padding:16px 20px; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center;">
         <div>
           <h3 style="margin:0; font-size:16px; font-weight:600; color:var(--primary);">PCAP Stream Selection</h3>
@@ -264,8 +264,8 @@
   </div>
 
   <!-- PCAP Analysis Modal (Step 2) -->
-  <div id="pcapAnalysisOverlay" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.7); z-index:10000; align-items:center; justify-content:center;">
-    <div style="background:var(--bg-secondary); border:1px solid var(--border); border-radius:8px; width:90%; max-width:700px; max-height:90vh; display:flex; flex-direction:column; box-shadow:0 15px 40px rgba(0,0,0,0.6);">
+  <div id="pcapAnalysisOverlay" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.3); z-index:10000; align-items:center; justify-content:center;">
+    <div style="background:var(--bg-secondary); border:1px solid var(--border); border-radius:12px; width:90%; max-width:700px; max-height:90vh; display:flex; flex-direction:column; box-shadow:0 15px 40px rgba(0,0,0,0.15);">
       <div style="padding:16px 20px; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center;">
         <h3 style="margin:0; font-size:16px; font-weight:600; color:var(--primary);">PCAP Scenario Analysis</h3>
         <div style="display:flex; gap:8px; align-items:center;">
@@ -306,8 +306,8 @@
   </div>
 
   <!-- Firewall Log Modal -->
-  <div id="fwModalOverlay" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.6); z-index:9999; align-items:center; justify-content:center;">
-    <div style="background:var(--bg-secondary); border:1px solid var(--border); border-radius:8px; width:80%; max-width:800px; max-height:80vh; display:flex; flex-direction:column; box-shadow:0 10px 30px rgba(0,0,0,0.5);">
+  <div id="fwModalOverlay" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.3); z-index:9999; align-items:center; justify-content:center;">
+    <div style="background:var(--bg-secondary); border:1px solid var(--border); border-radius:12px; width:80%; max-width:800px; max-height:80vh; display:flex; flex-direction:column; box-shadow:0 10px 30px rgba(0,0,0,0.12);">
       <div style="padding:16px 20px; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center;">
         <h3 style="margin:0; font-size:16px; font-weight:600;">Firewall Traffic Log</h3>
         <button onclick="document.getElementById('fwModalOverlay').style.display='none'" style="background:none; border:none; color:var(--text-muted); cursor:pointer; font-size:20px;">&times;</button>

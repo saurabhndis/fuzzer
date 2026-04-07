@@ -1,6 +1,6 @@
-# Protocol Fuzzer
+# ⚡ WireStrike
 
-A multi-protocol fuzzer for testing TLS, HTTP/2, QUIC, and Raw TCP implementations. Every byte of every handshake message is constructed manually, giving full control over protocol violations, malformations, and edge cases. No actual encryption is performed.
+A protocol security testing suite for TLS, HTTP/2, QUIC, and Raw TCP implementations. Every byte of every handshake message is constructed manually, giving full control over protocol violations, malformations, and edge cases. No actual encryption is performed.
 
 **1,500+ fuzzing scenarios** across **50+ categories** covering TLS handshake attacks, HTTP/2 frame manipulation, QUIC transport fuzzing, raw TCP stack attacks, CVE detection, certificate field fuzzing, TLS compatibility scanning, and more.
 

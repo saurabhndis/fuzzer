@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// TLS/TCP Protocol Fuzzer — CLI Entry Point
+// WireStrike — CLI Entry Point
 
 const { FuzzerClient } = require('./lib/fuzzer-client');
 const { FuzzerServer } = require('./lib/fuzzer-server');
@@ -15,7 +15,7 @@ const { isRawAvailable } = require('./lib/raw-tcp');
 const { generateServerCert } = require('./lib/cert-gen');
 
 const USAGE = `
-  TLS/TCP Protocol Fuzzer
+  WireStrike — Protocol Security Testing Suite
 
   Usage:
     node cli.js client <host> <port> [options]

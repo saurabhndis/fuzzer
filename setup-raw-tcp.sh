@@ -13,7 +13,7 @@ BOLD='\033[1m'
 RESET='\033[0m'
 
 echo ""
-echo -e "  ${BOLD}${CYAN}TLS/TCP Protocol Fuzzer — Raw TCP Setup${RESET}"
+echo -e "  ${BOLD}${CYAN}WireStrike — Raw TCP Setup${RESET}"
 echo ""
 
 # ── Check platform ──────────────────────────────────────────────────────────

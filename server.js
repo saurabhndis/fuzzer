@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// TLS/TCP Protocol Fuzzer — Standalone Server
+// WireStrike — Standalone Server
 // Run server-side fuzzing scenarios independently on any host
 
 const net = require('net');
@@ -15,7 +15,7 @@ const { computeOverallGrade } = require('./lib/grader');
 const cluster = require('cluster');
 
 const USAGE = `
-  TLS/TCP Protocol Fuzzer — Server Mode
+  WireStrike — Server Mode
 
   Starts a server agent with an HTTP control channel, or runs
   server-side fuzzing scenarios directly. Listens for incoming
@@ -168,7 +168,7 @@ async function primaryMain(args) {
   const fpFormatted = (fp.match(/.{2}/g) || []).join(':').toUpperCase();
 
   console.log('');
-  console.log('  \x1b[1m\x1b[36mTLS/TCP Protocol Fuzzer — Server\x1b[0m');
+  console.log('  \x1b[1m\x1b[36mWireStrike — Server\x1b[0m');
   console.log('');
   console.log(`  \x1b[90mListening on\x1b[0m  0.0.0.0:${port}`);
   console.log(`  \x1b[90mProtocol\x1b[0m      ${protocol}`);
