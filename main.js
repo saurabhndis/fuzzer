@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, Menu } = require('electron');
 const { fork } = require('child_process');
 const net = require('net');
 const path = require('path');
@@ -63,7 +63,50 @@ function createWindow() {
   });
 }
 
-app.whenReady().then(createWindow);
+app.whenReady().then(() => {
+  createWindow();
+
+  // Set up application menu with Edit menu for copy/paste support
+  const template = [
+    ...(process.platform === 'darwin' ? [{
+      label: app.name,
+      submenu: [
+        { role: 'about' },
+        { type: 'separator' },
+        { role: 'hide' },
+        { role: 'hideOthers' },
+        { role: 'unhide' },
+        { type: 'separator' },
+        { role: 'quit' },
+      ],
+    }] : []),
+    {
+      label: 'Edit',
+      submenu: [
+        { role: 'undo' },
+        { role: 'redo' },
+        { type: 'separator' },
+        { role: 'cut' },
+        { role: 'copy' },
+        { role: 'paste' },
+        { role: 'selectAll' },
+      ],
+    },
+    {
+      label: 'View',
+      submenu: [
+        { role: 'reload' },
+        { role: 'forceReload' },
+        { role: 'toggleDevTools' },
+        { type: 'separator' },
+        { role: 'resetZoom' },
+        { role: 'zoomIn' },
+        { role: 'zoomOut' },
+      ],
+    },
+  ];
+  Menu.setApplicationMenu(Menu.buildFromTemplate(template));
+});
 app.on('window-all-closed', () => app.quit());
 app.on('activate', () => {
   if (BrowserWindow.getAllWindows().length === 0) createWindow();
@@ -1000,6 +1043,38 @@ ${(scenario.serverActions || []).map(a => {
     content = content.replace(exportLine, scenarioStr + '\n' + exportLine);
     fs.writeFileSync(libraryPath, content);
     return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+});
+
+// Save PCAP test to the pcap-tests/ directory
+ipcMain.handle('save-pcap-test', async (event, scenario) => {
+  try {
+    const { savePcapTest } = require('./lib/pcap-scenarios');
+    const { serializePcapScenario, deserializePcapScenario } = require('./lib/pcap-parser');
+
+    // The scenario comes from the renderer with pre-evaluated actions.
+    // We need to wrap it into a proper scenario object for serialization.
+    const wrappedScenario = {
+      name: scenario.name,
+      category: scenario.category || 'PCAP',
+      description: scenario.description,
+      side: scenario.side || 'client',
+      protocol: scenario.protocol || 'tls',
+      explanation: scenario.explanation || '',
+      expected: scenario.expected || 'PASSED',
+      expectedReason: scenario.expectedReason || 'PCAP session recreation',
+      actions: () => scenario.actions || [],
+      serverActions: () => scenario.serverActions || [],
+    };
+
+    const saved = savePcapTest(wrappedScenario, {
+      hostname: 'localhost',
+      name: scenario.name,
+    });
+
+    return { ok: true, name: saved.name, filePath: saved.filePath };
   } catch (err) {
     return { ok: false, error: err.message };
   }

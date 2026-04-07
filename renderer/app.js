@@ -77,8 +77,7 @@
   const pcapTransformPlan = document.getElementById('pcapTransformPlan');
   const pcapActionsList = document.getElementById('pcapActionsList');
   const pcapRunNowBtn = document.getElementById('pcapRunNowBtn');
-  const pcapGenScriptBtn = document.getElementById('pcapGenScriptBtn');
-  const pcapAddLibBtn = document.getElementById('pcapAddLibBtn');
+  const pcapSaveToSuiteCheck = document.getElementById('pcapSaveToSuiteCheck');
   const pcapBackToStreams = document.getElementById('pcapBackToStreams');
   const closePcapModal = document.getElementById('closePcapModal');
 
@@ -1084,7 +1083,14 @@
         html += `  ${e.certCount} certificate${e.certCount !== 1 ? 's' : ''}`;
         html += `<div style="margin-left:20px;color:var(--text-secondary);font-size:11px;">`;
         for (const c of e.certs) {
-          html += `<div>[${c.index}] CN=${_escHtml(c.cn)} (${c.size.toLocaleString()} bytes)</div>`;
+          let keyInfo = '';
+          if (c.keyType && c.keyType !== 'unknown') {
+            keyInfo = ` | <span style="color:var(--primary);">${_escHtml(c.keyType)}`;
+            if (c.keySize) keyInfo += `-${c.keySize}`;
+            if (c.keyCurve) keyInfo += ` (${_escHtml(c.keyCurve)})`;
+            keyInfo += `</span>`;
+          }
+          html += `<div>[${c.index}] CN=${_escHtml(c.cn)} (${c.size.toLocaleString()} bytes)${keyInfo}</div>`;
         }
         html += `</div></div>`;
         parts.push(html);
@@ -1232,10 +1238,33 @@
     pcapStreamOverlay.style.display = 'flex';
   });
 
-  pcapRunNowBtn.addEventListener('click', () => {
+  pcapRunNowBtn.addEventListener('click', async () => {
     if (!currentPcapScenario) return;
     currentPcapScenario.name = pcapScenarioName.value.trim();
     currentPcapScenario.description = pcapScenarioDesc.value.trim();
+
+    // Save to test suite if checkbox is checked
+    if (pcapSaveToSuiteCheck.checked) {
+      const clientActions = currentPcapScenario.actions();
+      const serverActions = currentPcapScenario.serverActions ? currentPcapScenario.serverActions() : [];
+      const saveData = {
+        name: currentPcapScenario.name,
+        category: currentPcapScenario.category,
+        description: currentPcapScenario.description,
+        side: currentPcapScenario.side,
+        protocol: currentPcapScenario.protocol,
+        explanation: currentPcapScenario.explanation,
+        actions: clientActions,
+        serverActions: serverActions,
+      };
+      const saveResult = await window.fuzzer.savePcapTest(saveData);
+      if (saveResult && saveResult.ok) {
+        addLogEntry('info', `Test saved to suite: ${saveResult.name} (status: pending)`);
+        addLogEntry('info', `Verify after review: node cli.js verify-pcap-test ${saveResult.name}`);
+      } else {
+        addLogEntry('error', `Failed to save test: ${saveResult ? saveResult.error : 'unknown error'}`);
+      }
+    }
 
     // Build a plain IPC-safe scenario — functions can't cross Electron's structured clone.
     // Pre-evaluate actions and send as arrays; main.js will wrap them back into functions.
@@ -1257,56 +1286,6 @@
 
     pcapAnalysisOverlay.style.display = 'none';
     startFuzzing(runScenario);
-  });
-
-  pcapGenScriptBtn.addEventListener('click', async () => {
-    if (!currentPcapScenario) return;
-    currentPcapScenario.name = pcapScenarioName.value.trim();
-    currentPcapScenario.description = pcapScenarioDesc.value.trim();
-
-    // Build IPC-safe object — no functions, no Buffers
-    const evaluated = {
-      name: currentPcapScenario.name,
-      category: currentPcapScenario.category,
-      description: currentPcapScenario.description,
-      side: currentPcapScenario.side,
-      protocol: currentPcapScenario.protocol,
-      explanation: currentPcapScenario.explanation,
-      actions: currentPcapScenario.actions(),
-    };
-
-    const script = await window.fuzzer.generateStandaloneScript(evaluated);
-    const saveResult = await window.fuzzer.saveStandaloneScript(script);
-    if (saveResult.ok) {
-      addLogEntry('info', `Standalone script saved: ${saveResult.filePath}`);
-    }
-  });
-
-  pcapAddLibBtn.addEventListener('click', async () => {
-    if (!currentPcapScenario) return;
-    currentPcapScenario.name = pcapScenarioName.value.trim();
-    currentPcapScenario.description = pcapScenarioDesc.value.trim();
-
-    // Build IPC-safe object — no functions, no Buffers
-    const evaluated = {
-      name: currentPcapScenario.name,
-      category: currentPcapScenario.category,
-      description: currentPcapScenario.description,
-      side: currentPcapScenario.side,
-      protocol: currentPcapScenario.protocol,
-      explanation: currentPcapScenario.explanation,
-      actions: currentPcapScenario.actions(),
-      serverActions: currentPcapScenario.serverActions ? currentPcapScenario.serverActions() : [],
-    };
-
-    const result = await window.fuzzer.addScenarioToLibrary(evaluated);
-    if (result.ok) {
-      addLogEntry('info', `Scenario "${currentPcapScenario.name}" added to library.`);
-      pcapAnalysisOverlay.style.display = 'none';
-      loadScenarios();
-    } else {
-      addLogEntry('error', `Failed to add scenario to library: ${result.error}`);
-    }
   });
 
   async function startFuzzing(customScenario = null) {

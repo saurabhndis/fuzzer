@@ -26,3 +26,12 @@
   - Agent `/configure` endpoint accepts `pcapScenarios` array for inline scenario injection.
   - CLI `--distributed` flag with `--ingest-pcap` pushes scenarios to client+server agents.
   - New `test-pcap-distributed.js` standalone orchestrator for PCAP distributed testing.
+- [x] Added PCAP test category with full lifecycle management.
+  - New `pcap-scenarios.js` module: save, load, list, verify, delete PCAP tests.
+  - Tests stored as JSON in `pcap-tests/` directory with pending/verified status.
+  - New `PCAP` category registered in `scenarios.js` (opt-in, default disabled).
+  - `getScenario()` resolves PCAP tests by name (agents can run them by name).
+  - CLI commands: `pcap-tests`, `verify-pcap-test`, `delete-pcap-test`.
+  - `--ingest-pcap` auto-saves tests (use `--no-save` to skip).
+  - `--pcap-name` for custom test names.
+  - `--category PCAP` runs all saved PCAP tests.

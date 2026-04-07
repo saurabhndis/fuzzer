@@ -290,10 +290,14 @@
           </div>
         </div>
       </div>
-      <div style="padding:16px 20px; border-top:1px solid var(--border); display:flex; gap:10px; justify-content:flex-end; flex-wrap:wrap;">
-        <button id="pcapRunNowBtn" class="btn btn-run" style="flex:1; min-width:120px;">RUN NOW</button>
-        <button id="pcapGenScriptBtn" class="btn btn-connect" style="flex:1; min-width:120px; background:var(--secondary);">GENERATE SCRIPT</button>
-        <button id="pcapAddLibBtn" class="btn btn-connect" style="flex:1; min-width:120px; background:var(--accent);">ADD TO LIBRARY</button>
+      <div style="padding:16px 20px; border-top:1px solid var(--border); display:flex; gap:10px; justify-content:space-between; align-items:center; flex-wrap:wrap;">
+        <label style="display:flex; align-items:center; gap:6px; font-size:12px; color:var(--text-secondary); cursor:pointer;">
+          <input type="checkbox" id="pcapSaveToSuiteCheck" checked style="cursor:pointer;">
+          Save to test suite
+        </label>
+        <div style="display:flex; gap:10px;">
+          <button id="pcapRunNowBtn" class="btn btn-run" style="min-width:160px;">▶ RUN TEST</button>
+        </div>
       </div>
     </div>
   </div>
