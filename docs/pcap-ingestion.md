@@ -14,9 +14,11 @@ The PCAP ingestion feature allows the fuzzer to **recreate TLS sessions from cap
 flowchart TD
     subgraph "Phase 1: PCAP Parsing"
         A["📁 PCAP File"] --> B["readPcap()
-        Binary pcap parsing"]
+        Binary pcap parsing
+        + TCP flags extraction"]
         B --> C["groupStreams()
-        5-tuple grouping"]
+        5-tuple grouping
+        + FIN/RST propagation"]
         C --> D{"NAT
         Detected?"}
         D -->|"IP/port rewrite"| E["mergeNATStreams()

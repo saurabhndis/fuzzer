@@ -231,8 +231,8 @@
     <pre class="mermaid">
 flowchart TD
     subgraph P1["📁 Phase 1: PCAP Parsing"]
-        A["📁 PCAP File"] --> B["readPcap&lpar;&rpar;\nBinary pcap parsing"]
-        B --> C["groupStreams&lpar;&rpar;\n5-tuple grouping"]
+        A["📁 PCAP File"] --> B["readPcap&lpar;&rpar;\nBinary pcap parsing\n+ TCP flags extraction"]
+        B --> C["groupStreams&lpar;&rpar;\n5-tuple grouping\n+ FIN/RST propagation"]
         C --> D{"NAT\nDetected?"}
         D -->|"IP/port rewrite"| E["mergeNATStreams&lpar;&rpar;\nTwo-pass merge"]
         D -->|"Normal"| F["Bidirectional\nStreams"]
@@ -417,6 +417,8 @@ sequenceDiagram
     CA->>SA: ClientHello (verbatim from PCAP)
     SA->>CA: ServerHello + Certificate + SKE + SHD
     CA->>SA: Alert (BAD_CERTIFICATE)
+    Note over CA: TCP RST (from PCAP)
+    CA->>SA: TCP RST
 
     SA-->>U: {status: "tls-alert-client"}
     CA-->>U: {status: "DROPPED"}
@@ -473,8 +475,8 @@ verifiedAt: "2026-04-07T..."</code></pre>
     </div>
     <table>
         <tr><th>Function</th><th>Module</th><th>What it does</th></tr>
-        <tr><td><code>readPcap()</code></td><td>pcap-parser.js</td><td>Reads binary pcap file, extracts packets with IP/port/payload</td></tr>
-        <tr><td><code>groupStreams()</code></td><td>pcap-parser.js</td><td>Groups packets into bidirectional streams by 5-tuple</td></tr>
+        <tr><td><code>readPcap()</code></td><td>pcap-parser.js</td><td>Reads binary pcap file, extracts packets with IP/port/payload + TCP flags (FIN/RST/SYN)</td></tr>
+        <tr><td><code>groupStreams()</code></td><td>pcap-parser.js</td><td>Groups packets into bidirectional streams by 5-tuple, propagates TCP flags</td></tr>
         <tr><td><code>mergeNATStreams()</code></td><td>pcap-parser.js</td><td>Detects and merges streams split by NAT (IP and/or port rewrite)</td></tr>
     </table>
 </div>
@@ -505,8 +507,9 @@ verifiedAt: "2026-04-07T..."</code></pre>
     </div>
     <table>
         <tr><th>Function</th><th>Module</th><th>What it does</th></tr>
-        <tr><td><code>parsePcapToScenario()</code></td><td>pcap-parser.js</td><td>Decision tree: abort/TLS1.3/ECDHE/verbatim → scenario object</td></tr>
+        <tr><td><code>parsePcapToScenario()</code></td><td>pcap-parser.js</td><td>Decision tree: abort/TLS1.3/ECDHE/verbatim → scenario object + TCP control actions</td></tr>
         <tr><td><code>extractPostHandshakeActions()</code></td><td>pcap-parser.js</td><td>Extracts alerts, app data sent after handshake</td></tr>
+        <tr><td><code>extractTcpControlActions()</code></td><td>pcap-parser.js</td><td>Extracts TCP FIN/RST from stream for client and server action lists</td></tr>
         <tr><td><code>buildHandshakeAnalysis()</code></td><td>pcap-parser.js</td><td>Structured analysis for GUI display</td></tr>
     </table>
 </div>
