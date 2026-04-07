@@ -1,0 +1,658 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PCAP Ingestion — Test Case Generation & Scenario Management</title>
+    <script type="module">
+        import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';
+        mermaid.initialize({ startOnLoad: true, theme: 'dark' });
+    </script>
+    <style>
+        :root {
+            --bg: #0f172a;
+            --surface: #1e293b;
+            --surface2: #334155;
+            --primary: #38bdf8;
+            --secondary: #818cf8;
+            --text: #f1f5f9;
+            --text-dim: #94a3b8;
+            --accent: #f472b6;
+            --warning: #fbbf24;
+            --danger: #ef4444;
+            --success: #10b981;
+            --purple: #a78bfa;
+        }
+        body {
+            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+            background-color: var(--bg);
+            color: var(--text);
+            line-height: 1.6;
+            margin: 0;
+            padding: 0;
+        }
+        .container {
+            max-width: 1100px;
+            margin: 0 auto;
+            padding: 40px 30px;
+        }
+        h1 {
+            font-size: 2.2em;
+            background: linear-gradient(135deg, var(--primary), var(--secondary));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 10px;
+        }
+        h2 {
+            color: var(--primary);
+            border-bottom: 2px solid var(--surface2);
+            padding-bottom: 8px;
+            margin-top: 50px;
+        }
+        h3 {
+            color: var(--secondary);
+            margin-top: 30px;
+        }
+        .subtitle {
+            color: var(--text-dim);
+            font-size: 1.1em;
+            margin-bottom: 40px;
+        }
+        .card {
+            background: var(--surface);
+            border: 1px solid var(--surface2);
+            border-radius: 12px;
+            padding: 24px;
+            margin: 20px 0;
+        }
+        .card-accent {
+            border-left: 4px solid var(--primary);
+        }
+        .card-warning {
+            border-left: 4px solid var(--warning);
+        }
+        .card-success {
+            border-left: 4px solid var(--success);
+        }
+        .card-danger {
+            border-left: 4px solid var(--danger);
+        }
+        .card-purple {
+            border-left: 4px solid var(--purple);
+        }
+        .diagram-container {
+            background: var(--surface);
+            border: 1px solid var(--surface2);
+            border-radius: 12px;
+            padding: 30px;
+            margin: 20px 0;
+            overflow-x: auto;
+        }
+        .diagram-title {
+            color: var(--accent);
+            font-size: 0.85em;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 15px;
+            font-weight: 600;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 15px 0;
+        }
+        th {
+            background: var(--surface2);
+            color: var(--primary);
+            padding: 10px 14px;
+            text-align: left;
+            font-size: 0.85em;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        td {
+            padding: 10px 14px;
+            border-bottom: 1px solid var(--surface2);
+            font-size: 0.95em;
+        }
+        tr:hover td {
+            background: rgba(56, 189, 248, 0.05);
+        }
+        code {
+            background: var(--surface2);
+            color: var(--warning);
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-family: 'JetBrains Mono', 'Fira Code', monospace;
+            font-size: 0.9em;
+        }
+        pre {
+            background: var(--surface);
+            border: 1px solid var(--surface2);
+            border-radius: 8px;
+            padding: 16px;
+            overflow-x: auto;
+            font-family: 'JetBrains Mono', 'Fira Code', monospace;
+            font-size: 0.85em;
+            line-height: 1.5;
+        }
+        pre code {
+            background: none;
+            padding: 0;
+            color: var(--text);
+        }
+        .badge {
+            display: inline-block;
+            padding: 3px 10px;
+            border-radius: 12px;
+            font-size: 0.75em;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        .badge-blue { background: rgba(56, 189, 248, 0.2); color: var(--primary); }
+        .badge-purple { background: rgba(129, 140, 248, 0.2); color: var(--secondary); }
+        .badge-green { background: rgba(16, 185, 129, 0.2); color: var(--success); }
+        .badge-yellow { background: rgba(251, 191, 36, 0.2); color: var(--warning); }
+        .badge-red { background: rgba(239, 68, 68, 0.2); color: var(--danger); }
+        .badge-pink { background: rgba(244, 114, 182, 0.2); color: var(--accent); }
+        .phase-header {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 15px;
+        }
+        .phase-number {
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 700;
+            font-size: 1.1em;
+        }
+        .phase-1 { background: rgba(239, 68, 68, 0.2); color: var(--danger); }
+        .phase-2 { background: rgba(251, 191, 36, 0.2); color: var(--warning); }
+        .phase-3 { background: rgba(56, 189, 248, 0.2); color: var(--primary); }
+        .phase-4 { background: rgba(129, 140, 248, 0.2); color: var(--secondary); }
+        .phase-5 { background: rgba(16, 185, 129, 0.2); color: var(--success); }
+        .flow-arrow {
+            text-align: center;
+            color: var(--text-dim);
+            font-size: 1.5em;
+            margin: 10px 0;
+        }
+        .grid-2 {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+        @media (max-width: 768px) {
+            .grid-2 { grid-template-columns: 1fr; }
+        }
+        .highlight {
+            background: linear-gradient(135deg, rgba(56, 189, 248, 0.1), rgba(129, 140, 248, 0.1));
+            border: 1px solid rgba(56, 189, 248, 0.3);
+            border-radius: 8px;
+            padding: 16px;
+            margin: 15px 0;
+        }
+        .no-deps {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            background: rgba(16, 185, 129, 0.15);
+            border: 1px solid rgba(16, 185, 129, 0.3);
+            border-radius: 20px;
+            padding: 6px 14px;
+            font-size: 0.9em;
+            color: var(--success);
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+
+<h1>📡 PCAP Ingestion</h1>
+<p class="subtitle">Test Case Generation & Scenario Management</p>
+
+<div class="highlight">
+    <strong>What it does:</strong> Parses a PCAP file, extracts TLS handshake parameters, and generates a test scenario that replays the exact same client/server behavior — including handling PFS ciphers by performing live key exchange at runtime.
+    <br><br>
+    <span class="no-deps">✅ No external services or AI required — runs entirely locally</span>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════ -->
+<h2>🏗️ Architecture Flow</h2>
+
+<div class="diagram-container">
+    <div class="diagram-title">End-to-End Pipeline</div>
+    <pre class="mermaid">
+flowchart TD
+    subgraph P1["📁 Phase 1: PCAP Parsing"]
+        A["📁 PCAP File"] --> B["readPcap&lpar;&rpar;\nBinary pcap parsing"]
+        B --> C["groupStreams&lpar;&rpar;\n5-tuple grouping"]
+        C --> D{"NAT\nDetected?"}
+        D -->|"IP/port rewrite"| E["mergeNATStreams&lpar;&rpar;\nTwo-pass merge"]
+        D -->|"Normal"| F["Bidirectional\nStreams"]
+        E --> F
+    end
+
+    subgraph P2["🔍 Phase 2: TLS Analysis"]
+        F --> G["analyzeFullHandshake&lpar;&rpar;\nParse TLS records"]
+        G --> H{"One-sided\ncapture?"}
+        H -->|"Yes"| I["findPartnerStream&lpar;&rpar;\nNAT-aware search"]
+        I --> G
+        H -->|"No"| J["Full handshake\ndata available"]
+    end
+
+    subgraph P3["⚡ Phase 3: Scenario Generation"]
+        J --> K["parsePcapToScenario&lpar;&rpar;"]
+        K --> L{"Decision\nTree"}
+        L -->|"Alert before CKE"| M["🚨 Simple Replay"]
+        L -->|"TLS 1.3"| N["🔑 Fresh key_share"]
+        L -->|"TLS 1.2 ECDHE"| O["🔐 Live Handshake"]
+        L -->|"Other"| P["📋 Verbatim Replay"]
+    end
+
+    subgraph P4["🚀 Phase 4: Execution"]
+        M --> Q["Scenario Object"]
+        N --> Q
+        O --> Q
+        P --> Q
+        Q --> R{"User Choice"}
+        R -->|"CLI"| S["node cli.js\n--ingest-pcap"]
+        R -->|"GUI"| T["▶ RUN TEST"]
+        R -->|"Distributed"| U["Push to Agents"]
+    end
+
+    subgraph P5["✅ Phase 5: Lifecycle"]
+        S --> V["savePcapTest&lpar;&rpar;\nstatus: pending"]
+        T --> V
+        V --> W["Review Results"]
+        W --> X["verify-pcap-test\nstatus: verified"]
+        X --> Y["🏆 Permanent Suite\n--category PCAP"]
+    end
+
+    style A fill:#1e293b,stroke:#ef4444,color:#f1f5f9
+    style E fill:#1e293b,stroke:#818cf8,color:#f1f5f9
+    style K fill:#1e293b,stroke:#38bdf8,color:#f1f5f9
+    style M fill:#1e293b,stroke:#f472b6,color:#f1f5f9
+    style N fill:#1e293b,stroke:#38bdf8,color:#f1f5f9
+    style O fill:#1e293b,stroke:#38bdf8,color:#f1f5f9
+    style Y fill:#1e293b,stroke:#10b981,color:#f1f5f9
+    </pre>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════ -->
+<h2>🔄 NAT Detection & Stream Merging</h2>
+
+<p>When a NAT device sits between the capture point and the endpoints, client and server traffic appears as <strong>separate one-sided streams</strong> with different IPs (and sometimes different ports).</p>
+
+<div class="diagram-container">
+    <div class="diagram-title">NAT Rewrite Scenario</div>
+    <pre class="mermaid">
+flowchart LR
+    subgraph pre["Pre-NAT"]
+        C["🖥️ Client\n192.168.1.100:33182"]
+    end
+
+    subgraph nat["NAT Device"]
+        NAT["🔄 NAT\nRewrites IP + Port"]
+    end
+
+    subgraph srv["Server"]
+        S["🌐 Server\n44.205.87.22:443"]
+    end
+
+    subgraph post["Post-NAT"]
+        CN["📡 NAT'd Client\n134.238.246.143:52579"]
+    end
+
+    C -->|"ClientHello"| NAT
+    NAT -->|"ClientHello"| S
+    S -->|"ServerHello+Cert"| NAT
+    NAT -->|"ServerHello+Cert"| CN
+
+    style C fill:#1e293b,stroke:#ef4444,color:#f1f5f9
+    style NAT fill:#1e293b,stroke:#a78bfa,color:#f1f5f9
+    style S fill:#1e293b,stroke:#38bdf8,color:#f1f5f9
+    style CN fill:#1e293b,stroke:#818cf8,color:#f1f5f9
+    </pre>
+</div>
+
+<div class="card card-warning">
+    <h3 style="margin-top:0;">What the PCAP capture sees:</h3>
+    <table>
+        <tr><th>Stream</th><th>Direction</th><th>Packets</th><th>Content</th></tr>
+        <tr>
+            <td><span class="badge badge-red">Stream A</span></td>
+            <td><code>192.168.1.100:33182 → 44.205.87.22:443</code></td>
+            <td>3 (c2s only)</td>
+            <td>ClientHello + Alert</td>
+        </tr>
+        <tr>
+            <td><span class="badge badge-blue">Stream B</span></td>
+            <td><code>44.205.87.22:443 → 134.238.246.143:52579</code></td>
+            <td>6 (c2s only)</td>
+            <td>ServerHello + Cert + SKE + SHD</td>
+        </tr>
+    </table>
+</div>
+
+<div class="diagram-container">
+    <div class="diagram-title">Two-Pass Merge Strategy</div>
+    <pre class="mermaid">
+flowchart TD
+    A["One-sided Streams"] --> B{"Pass 1: Strict\nSame server IP:port\n+ Same client port?"}
+    B -->|"Match"| C["✅ Merge\nport-preserving NAT"]
+    B -->|"No match"| D{"Pass 2: Relaxed\nSame server IP:port\n+ Complementary HS types\n+ Close timestamps ≤30s?"}
+    D -->|"Match"| E["✅ Merge\nfull NAT with port rewrite"]
+    D -->|"No match"| F["❌ Keep separate"]
+
+    style C fill:#1e293b,stroke:#10b981,color:#f1f5f9
+    style E fill:#1e293b,stroke:#10b981,color:#f1f5f9
+    style F fill:#1e293b,stroke:#ef4444,color:#f1f5f9
+    </pre>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════ -->
+<h2>🔐 TLS Handshake Decision Tree</h2>
+
+<div class="diagram-container">
+    <div class="diagram-title">Replay Strategy Selection</div>
+    <pre class="mermaid">
+flowchart TD
+    A["Parsed TLS Session"] --> B{"Client sent\nAlert before CKE?"}
+    B -->|"Yes"| C["🚨 Aborted Handshake\n\n1. send ClientHello verbatim\n2. recv ServerFlight\n3. send Alert verbatim"]
+
+    B -->|"No"| D{"TLS 1.3?\nsupported_versions\n= 0x0304"}
+    D -->|"Yes"| E["🔑 TLS 1.3 Mode\n\n1. Rebuild ClientHello with\n   fresh key_share extension\n2. recv ServerHello"]
+
+    D -->|"No"| F{"ECDHE cipher?\nServerKeyExchange\npresent"}
+    F -->|"Yes"| G["🔐 Live ECDHE Mode\n\n1. tls12Handshake action\n   - Send CH verbatim\n   - Recv server flight\n   - Fresh ECDHE keys\n   - Send CKE+CCS+Finished"]
+
+    F -->|"No"| H["📋 Verbatim Mode\n\n1. send ClientHello verbatim\n2. recv ServerHello"]
+
+    style C fill:#1e293b,stroke:#f472b6,color:#f1f5f9
+    style E fill:#1e293b,stroke:#38bdf8,color:#f1f5f9
+    style G fill:#1e293b,stroke:#818cf8,color:#f1f5f9
+    style H fill:#1e293b,stroke:#94a3b8,color:#f1f5f9
+    </pre>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════ -->
+<h2>🌐 Distributed Mode</h2>
+
+<div class="diagram-container">
+    <div class="diagram-title">Stepped Orchestration Sequence</div>
+    <pre class="mermaid">
+sequenceDiagram
+    participant U as 👤 User/CLI
+    participant P as 📡 PCAP Parser
+    participant SA as 🖥️ Server Agent
+    participant CA as 💻 Client Agent
+
+    U->>P: parsePcapToScenario(file)
+    P-->>U: scenario (actions + serverActions)
+    U->>P: serializePcapScenario(scenario)
+    P-->>U: JSON-safe payload
+
+    Note over U,CA: Push to both agents
+
+    U->>SA: POST /configure {pcapScenarios}
+    SA-->>U: {scenarioCount: 1}
+    U->>CA: POST /configure {pcapScenarios}
+    CA-->>U: {scenarioCount: 1}
+
+    Note over SA,CA: Stepped Execution
+
+    U->>SA: POST /run-scenario {index: 0}
+    Note over SA: Server starts listening...
+
+    U->>CA: POST /run-scenario {index: 0}
+
+    CA->>SA: TCP Connect
+    CA->>SA: ClientHello (verbatim from PCAP)
+    SA->>CA: ServerHello + Certificate + SKE + SHD
+    CA->>SA: Alert (BAD_CERTIFICATE)
+
+    SA-->>U: {status: "tls-alert-client"}
+    CA-->>U: {status: "DROPPED"}
+
+    U->>SA: POST /finish
+    U->>CA: POST /finish
+    </pre>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════ -->
+<h2>♻️ Test Lifecycle</h2>
+
+<div class="diagram-container">
+    <div class="diagram-title">Pending → Verified Workflow</div>
+    <pre class="mermaid">
+stateDiagram-v2
+    [*] --> Ingested: --ingest-pcap
+    Ingested --> Pending: Auto-saved to pcap-tests/
+    Pending --> Running: --scenario name
+    Running --> Reviewed: User checks results
+    Reviewed --> Verified: verify-pcap-test
+    Verified --> PermanentSuite: Available in --category PCAP
+
+    Pending --> Deleted: delete-pcap-test
+    Reviewed --> Deleted: delete-pcap-test
+    Deleted --> [*]
+    </pre>
+</div>
+
+<div class="grid-2">
+    <div class="card card-warning">
+        <h3 style="margin-top:0;">⏳ Pending</h3>
+        <p>Freshly ingested from PCAP. Visible in <code>pcap-tests</code> listing. Can be run individually but not included in <code>--scenario all</code>.</p>
+        <pre><code>pcap-tests/name.json
+status: "pending"
+createdAt: "2026-04-07T..."</code></pre>
+    </div>
+    <div class="card card-success">
+        <h3 style="margin-top:0;">✅ Verified</h3>
+        <p>User has reviewed results and approved. Included in <code>--category PCAP</code> and resolved by <code>getScenario(name)</code>.</p>
+        <pre><code>pcap-tests/name.json
+status: "verified"
+verifiedAt: "2026-04-07T..."</code></pre>
+    </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════ -->
+<h2>📋 Processing Pipeline Detail</h2>
+
+<div class="card card-accent">
+    <div class="phase-header">
+        <div class="phase-number phase-1">1</div>
+        <h3 style="margin:0;">PCAP Parsing</h3>
+    </div>
+    <table>
+        <tr><th>Function</th><th>Module</th><th>What it does</th></tr>
+        <tr><td><code>readPcap()</code></td><td>pcap-parser.js</td><td>Reads binary pcap file, extracts packets with IP/port/payload</td></tr>
+        <tr><td><code>groupStreams()</code></td><td>pcap-parser.js</td><td>Groups packets into bidirectional streams by 5-tuple</td></tr>
+        <tr><td><code>mergeNATStreams()</code></td><td>pcap-parser.js</td><td>Detects and merges streams split by NAT (IP and/or port rewrite)</td></tr>
+    </table>
+</div>
+
+<div class="flow-arrow">⬇</div>
+
+<div class="card card-accent">
+    <div class="phase-header">
+        <div class="phase-number phase-2">2</div>
+        <h3 style="margin:0;">TLS Handshake Analysis</h3>
+    </div>
+    <table>
+        <tr><th>Function</th><th>Module</th><th>What it does</th></tr>
+        <tr><td><code>analyzeFullHandshake()</code></td><td>pcap-parser.js</td><td>Reassembles c2s/s2c data, parses TLS records and handshake messages</td></tr>
+        <tr><td><code>parseClientHello()</code></td><td>tls-validate.js</td><td>Extracts version, random, cipher suites, SNI, ALPN, extensions</td></tr>
+        <tr><td><code>parseServerHello()</code></td><td>tls-validate.js</td><td>Extracts selected cipher, version, extensions</td></tr>
+        <tr><td><code>parseServerKeyExchange()</code></td><td>tls12-crypto.js</td><td>Extracts ECDHE curve and public key</td></tr>
+        <tr><td><code>extractPublicKeyInfo()</code></td><td>pcap-parser.js</td><td>Extracts certificate key type (RSA/EC/Ed25519) and size</td></tr>
+    </table>
+</div>
+
+<div class="flow-arrow">⬇</div>
+
+<div class="card card-accent">
+    <div class="phase-header">
+        <div class="phase-number phase-3">3</div>
+        <h3 style="margin:0;">Scenario Generation</h3>
+    </div>
+    <table>
+        <tr><th>Function</th><th>Module</th><th>What it does</th></tr>
+        <tr><td><code>parsePcapToScenario()</code></td><td>pcap-parser.js</td><td>Decision tree: abort/TLS1.3/ECDHE/verbatim → scenario object</td></tr>
+        <tr><td><code>extractPostHandshakeActions()</code></td><td>pcap-parser.js</td><td>Extracts alerts, app data sent after handshake</td></tr>
+        <tr><td><code>buildHandshakeAnalysis()</code></td><td>pcap-parser.js</td><td>Structured analysis for GUI display</td></tr>
+    </table>
+</div>
+
+<div class="flow-arrow">⬇</div>
+
+<div class="card card-accent">
+    <div class="phase-header">
+        <div class="phase-number phase-4">4</div>
+        <h3 style="margin:0;">Storage & Lifecycle</h3>
+    </div>
+    <table>
+        <tr><th>Function</th><th>Module</th><th>What it does</th></tr>
+        <tr><td><code>savePcapTest()</code></td><td>pcap-scenarios.js</td><td>Serializes scenario to JSON, saves to pcap-tests/ with status: pending</td></tr>
+        <tr><td><code>verifyPcapTest()</code></td><td>pcap-scenarios.js</td><td>Updates status to verified, adds verifiedAt timestamp</td></tr>
+        <tr><td><code>getScenario()</code></td><td>scenarios.js</td><td>Resolves PCAP tests by name (calls getPcapScenario())</td></tr>
+    </table>
+</div>
+
+<div class="flow-arrow">⬇</div>
+
+<div class="card card-accent">
+    <div class="phase-header">
+        <div class="phase-number phase-5">5</div>
+        <h3 style="margin:0;">Distributed Execution</h3>
+    </div>
+    <table>
+        <tr><th>Function</th><th>Module</th><th>What it does</th></tr>
+        <tr><td><code>serializePcapScenario()</code></td><td>pcap-parser.js</td><td>Converts Buffers to {_hex} markers, evaluates action closures</td></tr>
+        <tr><td><code>/configure</code></td><td>agent.js</td><td>Accepts pcapScenarios array, deserializes inline</td></tr>
+        <tr><td><code>deserializePcapScenario()</code></td><td>pcap-parser.js</td><td>Reconstructs Buffers, wraps actions back into functions</td></tr>
+    </table>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════ -->
+<h2>🔑 Certificate Key Type Detection</h2>
+
+<div class="card">
+    <table>
+        <tr><th>Algorithm</th><th>OID</th><th>Key Sizes</th><th>Display</th></tr>
+        <tr>
+            <td><span class="badge badge-blue">RSA</span></td>
+            <td><code>1.2.840.113549.1.1.1</code></td>
+            <td>1024, 2048, 3072, 4096, 8192</td>
+            <td><code>RSA-2048</code></td>
+        </tr>
+        <tr>
+            <td><span class="badge badge-purple">EC (ECDSA)</span></td>
+            <td><code>1.2.840.10045.2.1</code></td>
+            <td>P-256 (256), P-384 (384), P-521 (521)</td>
+            <td><code>EC-256 (P-256)</code></td>
+        </tr>
+        <tr>
+            <td><span class="badge badge-green">Ed25519</span></td>
+            <td><code>1.3.101.112</code></td>
+            <td>256</td>
+            <td><code>Ed25519-256</code></td>
+        </tr>
+    </table>
+    <p style="color:var(--text-dim);font-size:0.9em;margin-top:10px;">
+        Example display: <code>[1] CN=example.com (1234 bytes) | RSA-4096</code>
+    </p>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════ -->
+<h2>💻 CLI Reference</h2>
+
+<div class="grid-2">
+    <div class="card card-purple">
+        <h3 style="margin-top:0;">Ingest & Run</h3>
+        <pre><code># List streams
+node cli.js client host 443 \
+  --ingest-pcap capture.pcap --list-streams
+
+# Ingest and run (auto-saves)
+node cli.js client host 443 \
+  --ingest-pcap capture.pcap
+
+# Custom name
+node cli.js client host 443 \
+  --ingest-pcap capture.pcap \
+  --pcap-name my-test
+
+# Run without saving
+node cli.js client host 443 \
+  --ingest-pcap capture.pcap --no-save
+
+# Distributed mode
+node cli.js client host 443 \
+  --ingest-pcap capture.pcap --distributed</code></pre>
+    </div>
+    <div class="card card-purple">
+        <h3 style="margin-top:0;">Manage Tests</h3>
+        <pre><code># List saved tests
+node cli.js pcap-tests
+
+# Run a saved test
+node cli.js client host 443 \
+  --scenario pcap-tls-session-0
+
+# Run all PCAP tests
+node cli.js client host 443 \
+  --category PCAP
+
+# Verify (promote to suite)
+node cli.js verify-pcap-test \
+  pcap-tls-session-0
+
+# Delete
+node cli.js delete-pcap-test \
+  pcap-tls-session-0</code></pre>
+    </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════ -->
+<h2>📁 File Structure</h2>
+
+<div class="card">
+<pre><code>fuzzer/
+├── lib/
+│   ├── pcap-parser.js        # PCAP reading, NAT merge, TLS analysis,
+│   │                         # scenario generation, serialization
+│   ├── pcap-scenarios.js     # Test lifecycle: save/load/list/verify/delete
+│   ├── scenarios.js          # PCAP category registration
+│   ├── agent.js              # /configure accepts pcapScenarios
+│   ├── unified-client.js     # tls12Handshake handler, Buffer coercion
+│   ├── tls-validate.js       # TLS message parsing
+│   ├── tls12-crypto.js       # ECDHE key exchange
+│   ├── record.js             # TLS record layer
+│   ├── handshake.js          # TLS message building
+│   └── constants.js          # TLS constants
+├── pcap-tests/               # Saved PCAP test files (JSON)
+│   └── .gitkeep
+├── test-pcap-distributed.js  # Standalone distributed orchestrator
+├── cli.js                    # CLI with PCAP commands
+├── main.js                   # Electron (Edit menu, IPC handlers)
+├── preload.js                # Electron IPC bridge
+└── renderer/
+    ├── app.js                # GUI: RUN TEST + Save checkbox
+    └── index.html            # Dialog layout</code></pre>
+</div>
+
+<div style="text-align:center;color:var(--text-dim);margin-top:40px;padding:20px;border-top:1px solid var(--surface2);">
+    Protocol Fuzzer — PCAP Ingestion Documentation
+</div>
+
+</div>
+</body>
+</html>
