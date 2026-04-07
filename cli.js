@@ -36,6 +36,9 @@ const USAGE = `
     --ingest-pcap <file>    Dynamically create a scenario from a given PCAP file
     --pcap-stream <index>   Select a specific stream from the PCAP (default: 0)
     --list-streams          List all streams found in the PCAP
+    --distributed           Run ingested PCAP scenario in distributed mode (requires agents)
+    --client-agent <h:p>    Client agent host:port for distributed mode (default: localhost:9200)
+    --server-agent <h:p>    Server agent host:port for distributed mode (default: localhost:9201)
     --no-baseline           Skip OpenSSL/baseline comparison testing
 
   Examples:
@@ -44,6 +47,7 @@ const USAGE = `
     node cli.js client google.com 443 --category D --verbose --pcap fuzz.pcap
     node cli.js client google.com 443 --scenario all
     node cli.js server 4433 --scenario server-hello-before-client-hello
+    node cli.js client example.com 443 --ingest-pcap capture.pcap --distributed
 `;
 
 function parseArgs(argv) {
@@ -51,7 +55,7 @@ function parseArgs(argv) {
   for (let i = 0; i < argv.length; i++) {
     if (argv[i].startsWith('--')) {
       const key = argv[i].slice(2);
-      if (key === 'verbose' || key === 'json' || key === 'merge-pcap') {
+      if (key === 'verbose' || key === 'json' || key === 'merge-pcap' || key === 'distributed' || key === 'list-streams') {
         args[key] = true;
       } else if (key === 'no-baseline') {
         args.baseline = false;
@@ -167,18 +171,137 @@ async function main() {
         if (args['list-streams']) {
           const packets = readPcap(args['ingest-pcap']);
           const streams = groupStreams(packets);
-          console.log(`\n  Streams found in ${args['ingest-pcap']}:\n`);
+          const natCount = streams.filter(s => s.natMerged).length;
+          console.log(`\n  Streams found in ${args['ingest-pcap']}: (${streams.length} streams${natCount > 0 ? `, ${natCount} NAT-merged` : ''})\n`);
           streams.forEach((s, idx) => {
             const analysis = analyzeStream(s);
-            console.log(`    [${idx}] ${analysis.description}`);
+            if (analysis.natMerged) {
+              console.log(`    \x1b[33m[${idx}]\x1b[0m ${analysis.description}`);
+            } else {
+              console.log(`    [${idx}] ${analysis.description}`);
+            }
           });
+          if (natCount > 0) {
+            console.log(`\n  \x1b[33mNote:\x1b[0m ${natCount} stream(s) were auto-merged from NAT-split captures.`);
+            console.log(`  Streams marked \x1b[33m[NAT-merged]\x1b[0m had client/server traffic with different IPs (NAT rewrite).`);
+          }
           process.exit(0);
         }
         const scenario = parsePcapToScenario(args['ingest-pcap'], streamIdx);
-        scenarios = [scenario];
-        protocol = scenario.protocol || protocol;
         console.log(`\x1b[32m  Ingested scenario from PCAP: ${scenario.description}\x1b[0m`);
         console.log(`\x1b[90m  Explanation: ${scenario.explanation}\x1b[0m\n`);
+
+        // ── Distributed mode: serialize and push to remote agents ──────
+        if (args.distributed) {
+          const { serializePcapScenario } = require('./lib/pcap-parser');
+          const http = require('http');
+
+          // Parse agent addresses
+          const clientAgentStr = args['client-agent'] || 'localhost:9200';
+          const serverAgentStr = args['server-agent'] || 'localhost:9201';
+          const [clientAgentHost, clientAgentPort] = clientAgentStr.split(':');
+          const [serverAgentHost, serverAgentPort] = serverAgentStr.split(':');
+
+          const serialized = serializePcapScenario(scenario, { hostname: host });
+          console.log(`  \x1b[36mDistributed mode:\x1b[0m pushing scenario to agents...`);
+          console.log(`    Client agent: ${clientAgentHost}:${clientAgentPort}`);
+          console.log(`    Server agent: ${serverAgentHost}:${serverAgentPort}`);
+          console.log(`    Client actions: ${serialized.clientActions.length}`);
+          console.log(`    Server actions: ${serialized.serverActions.length}\n`);
+
+          // Helper for HTTP requests
+          function agentRequest(agentHost, agentPort, method, urlPath, body, reqTimeout = 30000) {
+            return new Promise((resolve, reject) => {
+              const payload = body ? JSON.stringify(body) : null;
+              const opts = {
+                hostname: agentHost, port: parseInt(agentPort), path: urlPath, method, timeout: reqTimeout,
+                headers: { 'Content-Type': 'application/json' },
+              };
+              if (payload) opts.headers['Content-Length'] = Buffer.byteLength(payload);
+              const req = http.request(opts, (res) => {
+                let buf = '';
+                res.on('data', d => buf += d);
+                res.on('end', () => { try { resolve(JSON.parse(buf)); } catch { resolve(buf); } });
+              });
+              req.on('timeout', () => { req.destroy(); reject(new Error('Request timed out')); });
+              req.on('error', reject);
+              if (payload) req.write(payload);
+              req.end();
+            });
+          }
+
+          try {
+            // Stop any running tests
+            try { await agentRequest(clientAgentHost, clientAgentPort, 'POST', '/stop', {}); } catch (_) {}
+            try { await agentRequest(serverAgentHost, serverAgentPort, 'POST', '/stop', {}); } catch (_) {}
+            await new Promise(r => setTimeout(r, 500));
+
+            // Configure server agent
+            const serverConfig = await agentRequest(serverAgentHost, serverAgentPort, 'POST', '/configure', {
+              config: { host, port, hostname: host, protocol: scenario.protocol || 'tls', workers: 1, timeout, delay, baseline: false },
+              scenarios: [],
+              pcapScenarios: [{ ...serialized, name: serialized.name + '-server', side: 'server' }],
+            });
+            console.log(`  Server configured: ${serverConfig.scenarioCount} scenario(s)`);
+
+            // Configure client agent
+            const clientConfig = await agentRequest(clientAgentHost, clientAgentPort, 'POST', '/configure', {
+              config: { host, port, protocol: scenario.protocol || 'tls', workers: 1, timeout, delay, baseline: false },
+              scenarios: [],
+              pcapScenarios: [{ ...serialized, name: serialized.name + '-client', side: 'client' }],
+            });
+            console.log(`  Client configured: ${clientConfig.scenarioCount} scenario(s)`);
+
+            // Run server first, then client (stepped mode)
+            console.log(`\n  Running scenario in distributed mode...\n`);
+            const serverRunPromise = agentRequest(serverAgentHost, serverAgentPort, 'POST', '/run-scenario', { index: 0 }, 120000)
+              .catch(err => ({ error: err.message }));
+            await new Promise(r => setTimeout(r, 500));
+            const clientRunPromise = agentRequest(clientAgentHost, clientAgentPort, 'POST', '/run-scenario', { index: 0 }, 120000)
+              .catch(err => ({ error: err.message }));
+
+            const [serverResult, clientResult] = await Promise.all([serverRunPromise, clientRunPromise]);
+
+            // Finish
+            try { await agentRequest(serverAgentHost, serverAgentPort, 'POST', '/finish', {}); } catch (_) {}
+            try { await agentRequest(clientAgentHost, clientAgentPort, 'POST', '/finish', {}); } catch (_) {}
+            await new Promise(r => setTimeout(r, 500));
+
+            // Collect results
+            let clientResults = [], serverResults = [];
+            try { clientResults = await agentRequest(clientAgentHost, clientAgentPort, 'GET', '/results', null); } catch (_) {}
+            try { serverResults = await agentRequest(serverAgentHost, serverAgentPort, 'GET', '/results', null); } catch (_) {}
+
+            console.log(`  ═══════════════════════════════════════════════`);
+            console.log(`  PCAP DISTRIBUTED RESULTS`);
+            console.log(`  ═══════════════════════════════════════════════`);
+            console.log(`  Client results: ${Array.isArray(clientResults) ? clientResults.length : 0}`);
+            if (Array.isArray(clientResults)) {
+              for (const r of clientResults) console.log(`    ${r.status === 'PASSED' ? '✓' : '✗'} ${r.scenario}: ${r.status} ${r.response || ''}`);
+            }
+            console.log(`  Server results: ${Array.isArray(serverResults) ? serverResults.length : 0}`);
+            if (Array.isArray(serverResults)) {
+              for (const r of serverResults) console.log(`    ${r.status === 'PASSED' ? '✓' : '✗'} ${r.scenario}: ${r.status} ${r.response || ''}`);
+            }
+            if (clientResult.error) console.log(`  Client error: ${clientResult.error}`);
+            if (serverResult.error) console.log(`  Server error: ${serverResult.error}`);
+            console.log(`  ═══════════════════════════════════════════════\n`);
+
+            // Cleanup
+            try { await agentRequest(clientAgentHost, clientAgentPort, 'POST', '/stop', {}); } catch (_) {}
+            try { await agentRequest(serverAgentHost, serverAgentPort, 'POST', '/stop', {}); } catch (_) {}
+          } catch (err) {
+            console.error(`  Distributed mode failed: ${err.message}`);
+            console.error(`  Make sure agents are running:`);
+            console.error(`    Client: node cli.js client-agent --control-port ${clientAgentPort}`);
+            console.error(`    Server: node cli.js server-agent --control-port ${serverAgentPort}`);
+          }
+          process.exit(0);
+        }
+
+        // ── Local mode (default) ───────────────────────────────────────
+        scenarios = [scenario];
+        protocol = scenario.protocol || protocol;
       } catch (err) {
         console.error(`Failed to ingest PCAP: ${err.message}`);
         process.exit(1);

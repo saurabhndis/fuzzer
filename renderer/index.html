@@ -223,21 +223,54 @@
     </div>
   </div>
 
-  <!-- PCAP Analysis Modal -->
-  <div id="pcapAnalysisOverlay" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.7); z-index:10000; align-items:center; justify-content:center;">
-    <div style="background:var(--bg-secondary); border:1px solid var(--border); border-radius:8px; width:90%; max-width:700px; max-height:90vh; display:flex; flex-direction:column; box-shadow:0 15px-40px rgba(0,0,0,0.6);">
+  <!-- PCAP Stream Selection Modal (Step 1) -->
+  <div id="pcapStreamOverlay" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.7); z-index:10001; align-items:center; justify-content:center;">
+    <div style="background:var(--bg-secondary); border:1px solid var(--border); border-radius:8px; width:92%; max-width:900px; max-height:90vh; display:flex; flex-direction:column; box-shadow:0 15px 40px rgba(0,0,0,0.6);">
       <div style="padding:16px 20px; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center;">
-        <h3 style="margin:0; font-size:16px; font-weight:600; color:var(--primary);">PCAP Scenario Interpretation</h3>
-        <button id="closePcapModal" style="background:none; border:none; color:var(--text-muted); cursor:pointer; font-size:24px;">&times;</button>
+        <div>
+          <h3 style="margin:0; font-size:16px; font-weight:600; color:var(--primary);">PCAP Stream Selection</h3>
+          <div id="pcapStreamFilename" style="font-size:11px; color:var(--text-muted); margin-top:3px;"></div>
+        </div>
+        <button id="closePcapStreamModal" style="background:none; border:none; color:var(--text-muted); cursor:pointer; font-size:24px;">&times;</button>
+      </div>
+      <div style="padding:12px 20px; border-bottom:1px solid var(--border); display:flex; gap:10px; align-items:center; background:var(--bg-primary);">
+        <label style="font-size:11px; color:var(--text-muted); text-transform:uppercase; white-space:nowrap;">Filter</label>
+        <input type="text" id="pcapStreamFilter" class="agent-input" style="flex:1;" placeholder="e.g. tcp.port == 33182 || tcp.port == 52579">
+        <button id="pcapStreamFilterBtn" class="btn-small" style="height:28px; background:var(--accent-dim); color:var(--text-primary);">FILTER</button>
+        <button id="pcapStreamFilterClearBtn" class="btn-small" style="height:28px;">CLEAR</button>
+      </div>
+      <div style="padding:0 20px; overflow-y:auto; flex:1;">
+        <table style="width:100%; border-collapse:collapse; font-size:12px;">
+          <thead>
+            <tr style="position:sticky; top:0; background:var(--bg-tertiary); z-index:1;">
+              <th style="padding:8px 6px; text-align:left; font-size:10px; text-transform:uppercase; color:var(--text-muted); border-bottom:1px solid var(--border);">#</th>
+              <th style="padding:8px 6px; text-align:left; font-size:10px; text-transform:uppercase; color:var(--text-muted); border-bottom:1px solid var(--border);">Proto</th>
+              <th style="padding:8px 6px; text-align:left; font-size:10px; text-transform:uppercase; color:var(--text-muted); border-bottom:1px solid var(--border);">Source</th>
+              <th style="padding:8px 6px; text-align:center; font-size:10px; color:var(--text-muted); border-bottom:1px solid var(--border);"></th>
+              <th style="padding:8px 6px; text-align:left; font-size:10px; text-transform:uppercase; color:var(--text-muted); border-bottom:1px solid var(--border);">Destination</th>
+              <th style="padding:8px 6px; text-align:left; font-size:10px; text-transform:uppercase; color:var(--text-muted); border-bottom:1px solid var(--border);">SNI / Info</th>
+              <th style="padding:8px 6px; text-align:left; font-size:10px; text-transform:uppercase; color:var(--text-muted); border-bottom:1px solid var(--border);">Cipher</th>
+              <th style="padding:8px 6px; text-align:right; font-size:10px; text-transform:uppercase; color:var(--text-muted); border-bottom:1px solid var(--border);">Pkts</th>
+            </tr>
+          </thead>
+          <tbody id="pcapStreamTableBody"></tbody>
+        </table>
+      </div>
+      <div id="pcapStreamStatus" style="padding:10px 20px; border-top:1px solid var(--border); font-size:11px; color:var(--text-muted);"></div>
+    </div>
+  </div>
+
+  <!-- PCAP Analysis Modal (Step 2) -->
+  <div id="pcapAnalysisOverlay" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.7); z-index:10000; align-items:center; justify-content:center;">
+    <div style="background:var(--bg-secondary); border:1px solid var(--border); border-radius:8px; width:90%; max-width:700px; max-height:90vh; display:flex; flex-direction:column; box-shadow:0 15px 40px rgba(0,0,0,0.6);">
+      <div style="padding:16px 20px; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center;">
+        <h3 style="margin:0; font-size:16px; font-weight:600; color:var(--primary);">PCAP Scenario Analysis</h3>
+        <div style="display:flex; gap:8px; align-items:center;">
+          <button id="pcapBackToStreams" class="btn-small" style="height:28px;">BACK</button>
+          <button id="closePcapModal" style="background:none; border:none; color:var(--text-muted); cursor:pointer; font-size:24px;">&times;</button>
+        </div>
       </div>
       <div style="padding:20px; overflow-y:auto; flex:1; display:flex; flex-direction:column; gap:15px;">
-        <div style="display:flex; gap:10px; align-items:flex-end; background:var(--bg-primary); padding:10px; border-radius:4px; border:1px solid var(--border);">
-          <div style="flex:1;">
-            <label style="display:block; margin-bottom:5px; font-size:12px; color:var(--text-muted); text-transform:uppercase;">Stream ID</label>
-            <input type="number" id="pcapStreamId" class="agent-input" style="width:100%;" value="0" min="0">
-          </div>
-          <button id="pcapAnalyzeBtn" class="btn-small" style="height:32px; background:var(--primary);">ANALYZE</button>
-        </div>
         <div>
           <label style="display:block; margin-bottom:5px; font-size:12px; color:var(--text-muted); text-transform:uppercase;">Scenario Name</label>
           <input type="text" id="pcapScenarioName" class="agent-input" style="width:100%;" placeholder="e.g., custom-pcap-replay">
@@ -247,12 +280,14 @@
           <textarea id="pcapScenarioDesc" class="agent-input" style="width:100%; height:60px; resize:none;" placeholder="What does this test do?"></textarea>
         </div>
         <div>
+          <label style="display:block; margin-bottom:5px; font-size:12px; color:var(--text-muted); text-transform:uppercase;">Transformation Plan</label>
+          <div id="pcapTransformPlan" style="background:rgba(59, 130, 246, 0.08); border:1px solid rgba(59, 130, 246, 0.25); border-radius:4px; padding:12px; font-size:13px; color:var(--text-primary); line-height:1.5; white-space:pre-wrap;">
+          </div>
+        </div>
+        <div>
           <label style="display:block; margin-bottom:5px; font-size:12px; color:var(--text-muted); text-transform:uppercase;">Detected Actions</label>
           <div id="pcapActionsList" style="background:var(--bg-primary); border:1px solid var(--border); border-radius:4px; padding:10px; font-family:monospace; font-size:12px; color:var(--text-secondary); max-height:200px; overflow-y:auto;">
           </div>
-        </div>
-        <div style="background:rgba(56, 189, 248, 0.1); border-left:4px solid var(--primary); padding:10px; font-size:13px; color:var(--text-primary);">
-          <strong>Note:</strong> This will create a dynamic test case. Replay of encrypted TLS traffic may fail if the server requires fresh handshakes or has PFS enabled.
         </div>
       </div>
       <div style="padding:16px 20px; border-top:1px solid var(--border); display:flex; gap:10px; justify-content:flex-end; flex-wrap:wrap;">

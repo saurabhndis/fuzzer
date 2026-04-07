@@ -74,13 +74,23 @@
   const pcapAnalysisOverlay = document.getElementById('pcapAnalysisOverlay');
   const pcapScenarioName = document.getElementById('pcapScenarioName');
   const pcapScenarioDesc = document.getElementById('pcapScenarioDesc');
+  const pcapTransformPlan = document.getElementById('pcapTransformPlan');
   const pcapActionsList = document.getElementById('pcapActionsList');
   const pcapRunNowBtn = document.getElementById('pcapRunNowBtn');
   const pcapGenScriptBtn = document.getElementById('pcapGenScriptBtn');
   const pcapAddLibBtn = document.getElementById('pcapAddLibBtn');
-  const pcapAnalyzeBtn = document.getElementById('pcapAnalyzeBtn');
-  const pcapStreamId = document.getElementById('pcapStreamId');
+  const pcapBackToStreams = document.getElementById('pcapBackToStreams');
   const closePcapModal = document.getElementById('closePcapModal');
+
+  // PCAP Stream Selection elements
+  const pcapStreamOverlay = document.getElementById('pcapStreamOverlay');
+  const pcapStreamTableBody = document.getElementById('pcapStreamTableBody');
+  const pcapStreamFilter = document.getElementById('pcapStreamFilter');
+  const pcapStreamFilterBtn = document.getElementById('pcapStreamFilterBtn');
+  const pcapStreamFilterClearBtn = document.getElementById('pcapStreamFilterClearBtn');
+  const pcapStreamFilename = document.getElementById('pcapStreamFilename');
+  const pcapStreamStatus = document.getElementById('pcapStreamStatus');
+  const closePcapStreamModal = document.getElementById('closePcapStreamModal');
 
   // State
   let running = false;
@@ -901,6 +911,226 @@
   // --- PCAP Ingestion Logic ---
   let ingestedPcapPath = null;
 
+  // Deserialize a hex-encoded Buffer from IPC back to a real Buffer-like object
+  function deserializeAction(a) {
+    const out = { ...a };
+    if (out.data && out.data._hex) out.data = { type: 'Buffer', data: Array.from(hexToBytes(out.data._hex)), length: out.data.length };
+    if (out.clientHello && out.clientHello._hex) out.clientHello = { type: 'Buffer', data: Array.from(hexToBytes(out.clientHello._hex)), length: out.clientHello.length };
+    if (out.clientRandom && out.clientRandom._hex) out.clientRandom = { type: 'Buffer', data: Array.from(hexToBytes(out.clientRandom._hex)), length: out.clientRandom.length };
+    return out;
+  }
+
+  function hexToBytes(hex) {
+    const bytes = new Uint8Array(hex.length / 2);
+    for (let i = 0; i < hex.length; i += 2) bytes[i / 2] = parseInt(hex.substr(i, 2), 16);
+    return bytes;
+  }
+
+  // --- Wireshark-style filter matching ---
+  let pcapStreamsList = []; // cached streams from last PCAP load
+
+  function matchesFilter(stream, filterText) {
+    if (!filterText || !filterText.trim()) return true;
+    const text = filterText.trim();
+
+    // Split on top-level || (OR groups), then each group on && (AND)
+    const orGroups = text.split(/\s*\|\|\s*/);
+    return orGroups.some(group => {
+      const andTerms = group.split(/\s*&&\s*/);
+      return andTerms.every(term => matchesSingleTerm(stream, term.trim()));
+    });
+  }
+
+  function matchesSingleTerm(stream, term) {
+    // Parse: field == value  or  field != value
+    const m = term.match(/^([\w.]+)\s*(==|!=)\s*"?([^"]*)"?$/);
+    if (!m) return true; // unrecognized filter → show all
+    const [, field, op, value] = m;
+    let result = false;
+
+    // Extract ports and IPs from client/server strings like "1.2.3.4:443"
+    const clientParts = (stream.client || '').split(':');
+    const serverParts = (stream.server || '').split(':');
+    const clientIp = clientParts.slice(0, -1).join(':');
+    const clientPort = clientParts[clientParts.length - 1];
+    const serverIp = serverParts.slice(0, -1).join(':');
+    const serverPort = serverParts[serverParts.length - 1];
+
+    switch (field) {
+      case 'tcp.port':
+      case 'udp.port':
+        result = clientPort === value || serverPort === value;
+        break;
+      case 'tcp.srcport':
+      case 'udp.srcport':
+        result = clientPort === value;
+        break;
+      case 'tcp.dstport':
+      case 'udp.dstport':
+        result = serverPort === value;
+        break;
+      case 'ip.addr':
+        result = clientIp === value || serverIp === value;
+        break;
+      case 'ip.src':
+        result = clientIp === value;
+        break;
+      case 'ip.dst':
+        result = serverIp === value;
+        break;
+      case 'tls.handshake.extensions_server_name':
+        result = (stream.sni || '').toLowerCase().includes(value.toLowerCase());
+        break;
+      default:
+        result = true; // unknown field → pass through
+    }
+    return op === '==' ? result : !result;
+  }
+
+  function renderStreamTable(streams, filterText) {
+    pcapStreamTableBody.innerHTML = '';
+    const filtered = streams.filter(s => matchesFilter(s, filterText));
+    const MAX_DISPLAY = 200;
+    const display = filtered.slice(0, MAX_DISPLAY);
+
+    for (const s of display) {
+      const tr = document.createElement('tr');
+      tr.style.cssText = 'cursor:pointer; transition: background 0.15s;';
+      tr.addEventListener('mouseenter', () => { tr.style.background = 'rgba(59,130,246,0.12)'; });
+      tr.addEventListener('mouseleave', () => { tr.style.background = ''; });
+      tr.addEventListener('click', () => {
+        pcapStreamOverlay.style.display = 'none';
+        performPcapAnalysis(ingestedPcapPath, s.index);
+      });
+
+      const cellStyle = 'padding:8px 6px; border-bottom:1px solid var(--border); color:var(--text-primary);';
+      tr.innerHTML = `
+        <td style="${cellStyle}">${s.index}</td>
+        <td style="${cellStyle}"><span style="color:${s.transportProto === 'TCP' ? 'var(--primary)' : 'var(--secondary)'};">${_escHtml(s.proto || s.transportProto)}</span></td>
+        <td style="${cellStyle}">${_escHtml(s.client || '')}</td>
+        <td style="${cellStyle} text-align:center; color:var(--text-muted);">→</td>
+        <td style="${cellStyle}">${_escHtml(s.server || '')}</td>
+        <td style="${cellStyle} color:var(--text-secondary);">${_escHtml(s.sni || s.summary || '')}</td>
+        <td style="${cellStyle} color:var(--text-secondary);">${_escHtml(s.cipher || '')}</td>
+        <td style="${cellStyle} text-align:right;">${s.pktCount || 0}</td>
+      `;
+      pcapStreamTableBody.appendChild(tr);
+    }
+
+    const truncMsg = filtered.length > MAX_DISPLAY ? ` (showing first ${MAX_DISPLAY})` : '';
+    pcapStreamStatus.textContent = filterText
+      ? `${filtered.length} of ${streams.length} streams match filter${truncMsg}`
+      : `${streams.length} stream${streams.length !== 1 ? 's' : ''} found${truncMsg} — use filter to narrow down`;
+  }
+
+  // --- Handshake analysis HTML rendering ---
+  function buildAnalysisHtml(handshakeAnalysis, scenario, clientActions) {
+    if (!handshakeAnalysis || handshakeAnalysis.length === 0) {
+      // Fallback for scenarios without analysis
+      const explanation = scenario.explanation || '';
+      const hasTls12Hs = clientActions.some(a => a.type === 'tls12Handshake');
+      if (hasTls12Hs) {
+        return `<div style="color:var(--text-secondary);">TLS 1.2 ECDHE — ClientHello replayed verbatim (JA3 preserved), fresh key exchange at runtime.</div>`;
+      }
+      return `<div style="color:var(--text-secondary);">${_escHtml(explanation || 'Raw packet replay')}</div>`;
+    }
+
+    const parts = [];
+    for (const e of handshakeAnalysis) {
+      const isAlert = e.msg === 'Alert';
+      const arrow = e.dir === 'c2s' ? '&rarr;' : '&larr;';
+      const arrowColor = isAlert ? '#f85149' : (e.dir === 'c2s' ? '#58a6ff' : '#3fb950');
+      const dirLabel = e.dir === 'c2s' ? 'Client' : 'Server';
+
+      if (e.msg === 'ClientHello') {
+        const groupsStr = e.groups.length > 0 ? e.groups.join(', ') : 'none';
+        const sigAlgsMax = 4;
+        const sigAlgsStr = e.sigAlgs.length > sigAlgsMax
+          ? e.sigAlgs.slice(0, sigAlgsMax).join(', ') + `, ...+${e.sigAlgs.length - sigAlgsMax} more`
+          : (e.sigAlgs.length > 0 ? e.sigAlgs.join(', ') : 'none');
+        const ksGroups = e.keyShareGroups.length > 0
+          ? e.keyShareGroups.map(g => `${g.name} (${g.keySize}B)`).join(', ')
+          : '';
+        const versionsStr = e.supportedVersions.length > 0 ? e.supportedVersions.join(', ') : '';
+
+        let html = `<div style="margin-bottom:8px;">`;
+        html += `<div><span style="color:${arrowColor};font-weight:600;">${arrow} ClientHello</span>`;
+        html += `  <span style="color:var(--text-muted);">${_escHtml(e.version)} (0x${(0x0303).toString(16)})</span>`;
+        if (e.sni) html += `  |  <span style="color:var(--primary);">SNI: ${_escHtml(e.sni)}</span>`;
+        if (e.alpn.length > 0) html += `  |  ALPN: ${_escHtml(e.alpn.join(', '))}`;
+        html += `</div>`;
+        html += `<div style="margin-left:20px;color:var(--text-secondary);font-size:11px;">`;
+        html += `<div>${e.cipherCount} cipher suites: ${_escHtml(e.cipherNames.join(', '))}</div>`;
+        html += `<div>Groups: ${_escHtml(groupsStr)}</div>`;
+        html += `<div>Signature Algorithms: ${_escHtml(sigAlgsStr)}</div>`;
+        if (versionsStr) html += `<div>Supported Versions: ${_escHtml(versionsStr)}</div>`;
+        if (ksGroups) html += `<div>Key Share: ${_escHtml(ksGroups)}</div>`;
+        html += `<div>${e.extensionCount} extensions total</div>`;
+        html += `</div></div>`;
+        parts.push(html);
+
+      } else if (e.msg === 'ServerHello') {
+        let html = `<div style="margin-bottom:8px;">`;
+        html += `<span style="color:${arrowColor};font-weight:600;">${arrow} ServerHello</span>`;
+        html += `  <span style="color:var(--text-muted);">${_escHtml(e.version)}</span>`;
+        html += `  |  Selected: <span style="color:var(--primary);">${_escHtml(e.selectedCipher)}</span>`;
+        html += ` <span style="color:var(--text-muted);">(${e.selectedCipherHex})</span>`;
+        html += `</div>`;
+        parts.push(html);
+
+      } else if (e.msg === 'Certificate') {
+        let html = `<div style="margin-bottom:8px;">`;
+        html += `<span style="color:${arrowColor};font-weight:600;">${arrow} Certificate</span>`;
+        html += `  ${e.certCount} certificate${e.certCount !== 1 ? 's' : ''}`;
+        html += `<div style="margin-left:20px;color:var(--text-secondary);font-size:11px;">`;
+        for (const c of e.certs) {
+          html += `<div>[${c.index}] CN=${_escHtml(c.cn)} (${c.size.toLocaleString()} bytes)</div>`;
+        }
+        html += `</div></div>`;
+        parts.push(html);
+
+      } else if (e.msg === 'ServerKeyExchange') {
+        let html = `<div style="margin-bottom:8px;">`;
+        html += `<span style="color:${arrowColor};font-weight:600;">${arrow} ServerKeyExchange</span>`;
+        html += `  Curve: <span style="color:var(--primary);">${_escHtml(e.curveName)}</span>`;
+        html += ` (${e.publicKeySize}-byte public key)`;
+        html += `</div>`;
+        parts.push(html);
+
+      } else if (e.msg === 'CertificateRequest') {
+        parts.push(`<div style="margin-bottom:8px;"><span style="color:${arrowColor};font-weight:600;">${arrow} CertificateRequest</span>  <span style="color:var(--text-muted);">Server requests client certificate</span></div>`);
+
+      } else if (e.msg === 'ServerHelloDone') {
+        parts.push(`<div style="margin-bottom:8px;"><span style="color:${arrowColor};font-weight:600;">${arrow} ServerHelloDone</span></div>`);
+
+      } else if (e.msg === 'Alert') {
+        const levelColor = e.level === 'fatal' ? '#f85149' : '#d29922';
+        const levelLabel = e.level.toUpperCase();
+        const sender = e.dir === 'c2s' ? 'Client' : 'Server';
+        let html = `<div style="margin-bottom:8px;background:rgba(248,81,73,0.08);border-left:3px solid ${levelColor};padding:6px 10px;border-radius:0 4px 4px 0;">`;
+        html += `<span style="color:${levelColor};font-weight:600;">&#9888; ${sender} Alert</span>`;
+        html += `  <span style="color:${levelColor};">${levelLabel}: ${_escHtml(e.descName)}</span>`;
+        html += ` <span style="color:var(--text-muted);">(${e.descCode})</span>`;
+        if (e.causeHint) {
+          html += `<div style="margin-top:3px;margin-left:20px;color:var(--text-secondary);font-size:11px;">Likely cause: ${_escHtml(e.causeHint)}</div>`;
+        }
+        html += `</div>`;
+        parts.push(html);
+      }
+    }
+
+    // Replay strategy summary
+    const hasTls12Hs = clientActions.some(a => a.type === 'tls12Handshake');
+    const hasTls13 = clientActions.some(a => a.label && a.label.includes('TLS 1.3'));
+    if (hasTls12Hs) {
+      parts.push(`<div style="margin-top:6px;padding:6px 10px;background:rgba(56,139,253,0.08);border-left:3px solid #388bfd;border-radius:0 4px 4px 0;font-size:11px;color:var(--text-secondary);">Replay: ClientHello verbatim (JA3 preserved) + fresh ECDHE key exchange at runtime</div>`);
+    } else if (hasTls13) {
+      parts.push(`<div style="margin-top:6px;padding:6px 10px;background:rgba(56,139,253,0.08);border-left:3px solid #388bfd;border-radius:0 4px 4px 0;font-size:11px;color:var(--text-secondary);">Replay: TLS 1.3 ClientHello with fresh key_share (fingerprint preserved)</div>`);
+    }
+
+    return parts.join('');
+  }
+
   async function performPcapAnalysis(path, streamIdx) {
     addLogEntry('info', `Analyzing PCAP stream ${streamIdx}: ${path}...`);
     const result = await window.fuzzer.analyzePcap(path, streamIdx);
@@ -910,37 +1140,85 @@
       return;
     }
 
-    currentPcapScenario = result.scenario;
+    // The scenario comes serialized from IPC (no functions, Buffers as hex).
+    // Reconstruct actions as functions for the run pipeline.
+    const s = result.scenario;
+    const clientActions = (s._clientActions || []).map(deserializeAction);
+    const serverActions = (s._serverActions || []).map(deserializeAction);
+
+    currentPcapScenario = {
+      ...s,
+      actions: () => clientActions,
+      clientActions: () => clientActions,
+      serverActions: () => serverActions,
+    };
+
     pcapScenarioName.value = currentPcapScenario.name;
     pcapScenarioDesc.value = currentPcapScenario.description;
-    
+
+    // Build handshake analysis
+    pcapTransformPlan.innerHTML = buildAnalysisHtml(s.handshakeAnalysis || [], s, clientActions);
+
     // Visualize actions
-    pcapActionsList.innerHTML = currentPcapScenario.actions().map(a => {
+    pcapActionsList.innerHTML = clientActions.map(a => {
       const label = a.label ? `<span style="color:var(--primary); margin-left:10px;">(${a.label})</span>` : '';
       if (a.type === 'send') {
-        const bytes = a.data.data ? a.data.data.length : a.data.length;
-        return `<div style="margin-bottom:4px;">→ <strong>SEND</strong> ${bytes} bytes ${label}</div>`;
+        const bytes = a.data ? (a.data.length || 0) : 0;
+        return `<div style="margin-bottom:4px;">&rarr; <strong>SEND</strong> ${bytes} bytes ${label}</div>`;
       } else if (a.type === 'recv') {
-        return `<div style="margin-bottom:4px;">← <strong>RECV</strong> (timeout: ${a.timeout}ms) ${label}</div>`;
+        return `<div style="margin-bottom:4px;">&larr; <strong>RECV</strong> (timeout: ${a.timeout}ms) ${label}</div>`;
+      } else if (a.type === 'tls12Handshake') {
+        return `<div style="margin-bottom:4px;">&#128273; <strong>TLS 1.2 ECDHE Handshake</strong> (live key exchange) ${label}</div>`;
       }
-      return '';
+      return `<div style="margin-bottom:4px;">&#9889; <strong>${a.type.toUpperCase()}</strong> ${label}</div>`;
     }).join('');
 
     pcapAnalysisOverlay.style.display = 'flex';
   }
 
+  // --- PCAP Ingest: Stream Selection Flow ---
   ingestPcapBtn.addEventListener('click', async () => {
     const path = await window.fuzzer.openPcapDialog();
     if (!path) return;
     ingestedPcapPath = path;
-    pcapStreamId.value = 0;
-    await performPcapAnalysis(path, 0);
+    pcapStreamFilename.textContent = path.split(/[\\/]/).pop();
+    pcapStreamFilter.value = '';
+    pcapStreamStatus.textContent = 'Loading streams...';
+    pcapStreamTableBody.innerHTML = '';
+    pcapStreamOverlay.style.display = 'flex';
+
+    const result = await window.fuzzer.listPcapStreams(path);
+    if (!result.ok) {
+      pcapStreamStatus.textContent = `Error: ${result.error}`;
+      addLogEntry('error', `PCAP stream listing failed: ${result.error}`);
+      return;
+    }
+
+    pcapStreamsList = result.streams;
+    renderStreamTable(pcapStreamsList, '');
+
+    // If only one stream, auto-select it
+    if (pcapStreamsList.length === 1) {
+      pcapStreamOverlay.style.display = 'none';
+      performPcapAnalysis(path, 0);
+    }
   });
 
-  pcapAnalyzeBtn.addEventListener('click', async () => {
-    if (!ingestedPcapPath) return;
-    const streamIdx = parseInt(pcapStreamId.value, 10) || 0;
-    await performPcapAnalysis(ingestedPcapPath, streamIdx);
+  // Filter handlers
+  pcapStreamFilterBtn.addEventListener('click', () => {
+    renderStreamTable(pcapStreamsList, pcapStreamFilter.value);
+  });
+  pcapStreamFilter.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') renderStreamTable(pcapStreamsList, pcapStreamFilter.value);
+  });
+  pcapStreamFilterClearBtn.addEventListener('click', () => {
+    pcapStreamFilter.value = '';
+    renderStreamTable(pcapStreamsList, '');
+  });
+
+  // Close / Back handlers
+  closePcapStreamModal.addEventListener('click', () => {
+    pcapStreamOverlay.style.display = 'none';
   });
 
   closePcapModal.addEventListener('click', () => {
@@ -948,19 +1226,33 @@
     currentPcapScenario = null;
   });
 
+  pcapBackToStreams.addEventListener('click', () => {
+    pcapAnalysisOverlay.style.display = 'none';
+    currentPcapScenario = null;
+    pcapStreamOverlay.style.display = 'flex';
+  });
+
   pcapRunNowBtn.addEventListener('click', () => {
     if (!currentPcapScenario) return;
     currentPcapScenario.name = pcapScenarioName.value.trim();
     currentPcapScenario.description = pcapScenarioDesc.value.trim();
-    
-    // Evaluate actions before running
-    const evaluatedActions = (currentPcapScenario.clientActions || currentPcapScenario.actions)({ hostname: hostInput.value.trim() });
-    const serverActions = currentPcapScenario.serverActions ? currentPcapScenario.serverActions({}) : [];
-    
-    const runScenario = { 
-        ...currentPcapScenario, 
-        actions: () => evaluatedActions,
-        serverActions: () => serverActions
+
+    // Build a plain IPC-safe scenario — functions can't cross Electron's structured clone.
+    // Pre-evaluate actions and send as arrays; main.js will wrap them back into functions.
+    const clientActions = currentPcapScenario.actions();
+    const serverActions = currentPcapScenario.serverActions ? currentPcapScenario.serverActions() : [];
+    const runScenario = {
+      name: currentPcapScenario.name,
+      category: currentPcapScenario.category,
+      description: currentPcapScenario.description,
+      side: currentPcapScenario.side,
+      protocol: currentPcapScenario.protocol,
+      explanation: currentPcapScenario.explanation,
+      expected: currentPcapScenario.expected,
+      expectedReason: currentPcapScenario.expectedReason,
+      pcapParams: currentPcapScenario.pcapParams,
+      _clientActions: clientActions,
+      _serverActions: serverActions,
     };
 
     pcapAnalysisOverlay.style.display = 'none';
@@ -971,12 +1263,18 @@
     if (!currentPcapScenario) return;
     currentPcapScenario.name = pcapScenarioName.value.trim();
     currentPcapScenario.description = pcapScenarioDesc.value.trim();
-    
-    // Evaluate for script generation
+
+    // Build IPC-safe object — no functions, no Buffers
     const evaluated = {
-        ...currentPcapScenario,
-        actions: currentPcapScenario.actions({ hostname: hostInput.value.trim() })
+      name: currentPcapScenario.name,
+      category: currentPcapScenario.category,
+      description: currentPcapScenario.description,
+      side: currentPcapScenario.side,
+      protocol: currentPcapScenario.protocol,
+      explanation: currentPcapScenario.explanation,
+      actions: currentPcapScenario.actions(),
     };
+
     const script = await window.fuzzer.generateStandaloneScript(evaluated);
     const saveResult = await window.fuzzer.saveStandaloneScript(script);
     if (saveResult.ok) {
@@ -988,19 +1286,24 @@
     if (!currentPcapScenario) return;
     currentPcapScenario.name = pcapScenarioName.value.trim();
     currentPcapScenario.description = pcapScenarioDesc.value.trim();
-    
-    // Evaluate actions into plain arrays for library storage
+
+    // Build IPC-safe object — no functions, no Buffers
     const evaluated = {
-        ...currentPcapScenario,
-        actions: (currentPcapScenario.clientActions || currentPcapScenario.actions)({ hostname: hostInput.value.trim() }),
-        serverActions: currentPcapScenario.serverActions ? currentPcapScenario.serverActions({}) : []
+      name: currentPcapScenario.name,
+      category: currentPcapScenario.category,
+      description: currentPcapScenario.description,
+      side: currentPcapScenario.side,
+      protocol: currentPcapScenario.protocol,
+      explanation: currentPcapScenario.explanation,
+      actions: currentPcapScenario.actions(),
+      serverActions: currentPcapScenario.serverActions ? currentPcapScenario.serverActions() : [],
     };
 
     const result = await window.fuzzer.addScenarioToLibrary(evaluated);
     if (result.ok) {
       addLogEntry('info', `Scenario "${currentPcapScenario.name}" added to library.`);
       pcapAnalysisOverlay.style.display = 'none';
-      loadScenarios(); // Refresh the list
+      loadScenarios();
     } else {
       addLogEntry('error', `Failed to add scenario to library: ${result.error}`);
     }

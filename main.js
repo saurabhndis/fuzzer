@@ -165,8 +165,10 @@ ipcMain.handle('list-scenarios', () => {
 
 // Run fuzzer
 ipcMain.handle('run-fuzzer', async (event, opts) => {
-  const { mode, host, port, scenarioNames, delay, timeout, pcapFile, verbose, hostname, protocol, dut, loopCount: rawLoop, localMode, baseline, workers } = opts;
+  const { mode, host, port, scenarioNames, delay, timeout, pcapFile, verbose, hostname, protocol, dut, loopCount: rawLoop, localMode, baseline, workers: rawWorkers } = opts;
   const loopCount = Math.max(1, Math.min(1000, parseInt(rawLoop, 10) || 1));
+  // Custom/PCAP scenarios can't be dispatched to worker processes
+  const workers = opts.scenario ? 1 : (rawWorkers || 1);
 
   const send = (channel, data) => {
     if (mainWindow && !mainWindow.isDestroyed()) {
@@ -202,6 +204,16 @@ ipcMain.handle('run-fuzzer', async (event, opts) => {
     }
     return s;
   };
+  // If the scenario came from the renderer with pre-evaluated actions (_clientActions/_serverActions),
+  // reconstruct the actions/serverActions functions so the run pipeline can use them.
+  if (opts.scenario && opts.scenario._clientActions && !opts.scenario.actions) {
+    const ca = opts.scenario._clientActions;
+    const sa = opts.scenario._serverActions || [];
+    opts.scenario.actions = () => ca;
+    opts.scenario.serverActions = () => sa;
+    delete opts.scenario._clientActions;
+    delete opts.scenario._serverActions;
+  }
   const scenarios = opts.scenario ? [opts.scenario] : (scenarioNames || []).map(lookup).filter(Boolean);
 
   // ── Client mode ───────────────────────────────────────────────────────────────
@@ -219,7 +231,18 @@ ipcMain.handle('run-fuzzer', async (event, opts) => {
     let clientPort = portNum;
 
     if (localMode) {
-      localServer = new WellBehavedServer({ port: portNum, hostname: 'localhost', logger });
+      const serverOpts = { port: portNum, hostname: 'localhost', logger };
+      // Constrain TLS version/cipher to match PCAP's negotiated session
+      const pcap = opts.scenario?.pcapParams;
+      if (pcap?.serverParams) {
+        const { IANA_TO_OPENSSL } = require('./lib/tls12-crypto');
+        if (pcap.serverParams.version && pcap.serverParams.version <= 0x0303) {
+          serverOpts.maxVersion = 'TLSv1.2';
+        }
+        const opensslName = IANA_TO_OPENSSL[pcap.serverParams.cipherSuite];
+        if (opensslName) serverOpts.ciphers = opensslName;
+      }
+      localServer = new WellBehavedServer(serverOpts);
       try {
         if (protocol === 'raw-tcp') await localServer.startTCP();
         else if (protocol === 'quic') await localServer.startQuic();
@@ -287,9 +310,11 @@ ipcMain.handle('run-fuzzer', async (event, opts) => {
           }
         });
 
-        // After all workers are done, send a final shutdown signal
-        const closer = new UnifiedClient({ host: clientHost, port: clientPort, logger, timeout, delay });
-        await closer.shutdown(protocol);
+        // After all workers are done, send a silent shutdown signal (no log noise)
+        const silentLogger = Object.create(logger);
+        silentLogger.info = () => {};
+        const closer = new UnifiedClient({ host: clientHost, port: clientPort, logger: silentLogger, timeout, delay });
+        await closer.shutdown(protocol).catch(() => {});
         closer.close();
 
       } finally {
@@ -341,7 +366,11 @@ ipcMain.handle('run-fuzzer', async (event, opts) => {
         }
       } finally {
         if (activeClient) {
-          await activeClient.shutdown(protocol);
+          // Suppress shutdown log messages from the GUI packet log
+          const origInfo = activeClient.logger.info;
+          activeClient.logger.info = () => {};
+          await activeClient.shutdown(protocol).catch(() => {});
+          activeClient.logger.info = origInfo;
           activeClient.close();
         }
         activeClient = null;
@@ -789,12 +818,84 @@ ipcMain.handle('open-pcap-dialog', async () => {
   return result.canceled ? null : result.filePaths[0];
 });
 
+// List all TCP/UDP streams in a PCAP file for the stream selection UI
+ipcMain.handle('list-pcap-streams', async (event, filePath) => {
+  const { readPcap, groupStreams, analyzeStream } = require('./lib/pcap-parser');
+  try {
+    const packets = readPcap(filePath);
+    const streams = groupStreams(packets);
+    return {
+      ok: true,
+      streams: streams.map((s, i) => {
+        const info = analyzeStream(s);
+        const pktCount = s.packets.length;
+        const c2sCount = s.packets.filter(p => p.direction === 'c2s').length;
+        const s2cCount = s.packets.filter(p => p.direction === 's2c').length;
+        return {
+          index: i,
+          transportProto: s.proto,
+          client: s.client,
+          server: s.server,
+          proto: info.proto,
+          summary: info.summary,
+          sni: info.sni,
+          cipher: info.cipher,
+          pktCount,
+          c2sCount,
+          s2cCount,
+        };
+      }),
+    };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+});
+
 // Analyze PCAP and return scenario interpretation
+// The scenario object contains functions and Buffers which can't cross IPC
+// (structured clone). We serialize to a plain object with pre-evaluated actions.
 ipcMain.handle('analyze-pcap', async (event, filePath, streamIndex) => {
   const { parsePcapToScenario } = require('./lib/pcap-parser');
   try {
     const scenario = parsePcapToScenario(filePath, streamIndex || 0);
-    return { ok: true, scenario };
+
+    // Pre-evaluate actions with a placeholder hostname (renderer will re-evaluate for "Run Now")
+    const clientActions = typeof scenario.actions === 'function' ? scenario.actions({ hostname: 'localhost' }) : scenario.actions || [];
+    const serverActions = typeof scenario.serverActions === 'function' ? scenario.serverActions({}) : scenario.serverActions || [];
+
+    // Convert Buffers to hex strings for IPC serialization
+    const serializeAction = (a) => {
+      const out = { ...a };
+      if (Buffer.isBuffer(out.data)) out.data = { _hex: out.data.toString('hex'), length: out.data.length };
+      if (Buffer.isBuffer(out.clientHello)) out.clientHello = { _hex: out.clientHello.toString('hex'), length: out.clientHello.length };
+      if (Buffer.isBuffer(out.clientRandom)) out.clientRandom = { _hex: out.clientRandom.toString('hex'), length: out.clientRandom.length };
+      return out;
+    };
+
+    const serialized = {
+      name: scenario.name,
+      category: scenario.category,
+      description: scenario.description,
+      side: scenario.side,
+      protocol: scenario.protocol,
+      explanation: scenario.explanation,
+      expected: scenario.expected,
+      expectedReason: scenario.expectedReason,
+      _clientActions: clientActions.map(serializeAction),
+      _serverActions: serverActions.map(serializeAction),
+      // Keep pcapParams but strip Buffers
+      pcapParams: scenario.pcapParams ? {
+        startTlsClient: scenario.pcapParams.startTlsClient ? true : false,
+        startTlsServer: scenario.pcapParams.startTlsServer ? true : false,
+        hasClientParams: !!scenario.pcapParams.clientParams,
+        hasServerParams: !!scenario.pcapParams.serverParams,
+        hostname: scenario.pcapParams.clientParams?.hostname || null,
+        cipherSuite: scenario.pcapParams.serverParams?.cipherSuite || null,
+      } : null,
+      handshakeAnalysis: scenario.pcapParams?.handshakeAnalysis || [],
+    };
+
+    return { ok: true, scenario: serialized };
   } catch (err) {
     return { ok: false, error: err.message };
   }
@@ -820,7 +921,7 @@ async function run() {
 
   const scenario = ${JSON.stringify(scenario, (key, value) => {
     if (key === 'data' && value && value.type === 'Buffer') {
-      return \`Buffer.from("${Buffer.from(value.data).toString('hex')}", "hex")\`;
+      return 'Buffer.from("' + Buffer.from(value.data).toString('hex') + '", "hex")';
     }
     return value;
   }, 2).replace(/"Buffer\.from\(\\"([0-9a-f]+)\\", \\"hex\\"\)"/g, 'Buffer.from("$1", "hex")')};
