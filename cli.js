@@ -342,15 +342,16 @@ async function main() {
 
             // Configure server agent
             const serverConfig = await agentRequest(serverAgentHost, serverAgentPort, 'POST', '/configure', {
-              config: { host, port, hostname: host, protocol: scenario.protocol || 'tls', workers: 1, timeout, delay, baseline: false },
+              config: { bindAddress: '0.0.0.0', host: '0.0.0.0', port, hostname: host, protocol: scenario.protocol || 'tls', workers: 1, timeout, delay, baseline: false },
               scenarios: [],
               pcapScenarios: [{ ...serialized, name: serialized.name + '-server', side: 'server' }],
             });
             console.log(`  Server configured: ${serverConfig.scenarioCount} scenario(s)`);
 
             // Configure client agent
+            const clientConnectHost = serverAgentHost === 'localhost' ? '127.0.0.1' : serverAgentHost;
             const clientConfig = await agentRequest(clientAgentHost, clientAgentPort, 'POST', '/configure', {
-              config: { host, port, protocol: scenario.protocol || 'tls', workers: 1, timeout, delay, baseline: false },
+              config: { host: clientConnectHost, port, protocol: scenario.protocol || 'tls', workers: 1, timeout, delay, baseline: false },
               scenarios: [],
               pcapScenarios: [{ ...serialized, name: serialized.name + '-client', side: 'client' }],
             });

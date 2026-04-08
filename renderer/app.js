@@ -1487,19 +1487,25 @@
     const checkboxes = scenariosList.querySelectorAll('input[type="checkbox"]:checked');
     const clientScenarios = [];
     const serverScenarios = [];
+    const pcapScenarios = [];
     for (const cb of checkboxes) {
-      if (cb.dataset.side === 'client') clientScenarios.push(cb.value);
-      else if (cb.dataset.side === 'server') serverScenarios.push(cb.value);
+      if (cb.dataset.category === 'PCAP') {
+        pcapScenarios.push(cb.value);
+      } else if (cb.dataset.side === 'client') {
+        clientScenarios.push(cb.value);
+      } else if (cb.dataset.side === 'server') {
+        serverScenarios.push(cb.value);
+      }
     }
 
-    if (clientScenarios.length === 0 && serverScenarios.length === 0) {
+    if (clientScenarios.length === 0 && serverScenarios.length === 0 && pcapScenarios.length === 0) {
       addLogEntry('error', 'No scenarios selected');
       return;
     }
 
     // Validate that required agents are connected
-    const needClient = clientScenarios.length > 0 || serverScenarios.length > 0;
-    const needServer = serverScenarios.length > 0 || clientScenarios.length > 0;
+    const needClient = clientScenarios.length > 0 || serverScenarios.length > 0 || pcapScenarios.length > 0;
+    const needServer = serverScenarios.length > 0 || clientScenarios.length > 0 || pcapScenarios.length > 0;
     if (needClient && !connectedAgents.client) {
       addLogEntry('error', 'Client agent is not connected — reconnect before running');
       return;
@@ -1578,7 +1584,7 @@
     summaryBar.style.display = 'none';
     progressContainer.style.display = 'flex';
     progressBar.style.width = '0%';
-    const totalScenarios = clientScenarios.length + serverScenarios.length;
+    const totalScenarios = clientScenarios.length + serverScenarios.length + pcapScenarios.length;
     progressText.textContent = `0 / ${totalScenarios}`;
 
     // Open firewall monitor popup in DUT mode
@@ -1589,14 +1595,15 @@
     const workers = parseInt(workersInput.value, 10) || 1;
 
     // Configure agents
-    addLogEntry('info', `Configuring agents: ${clientScenarios.length} client, ${serverScenarios.length} server scenarios`);
+    addLogEntry('info', `Configuring agents: ${clientScenarios.length} client, ${serverScenarios.length} server${pcapScenarios.length ? `, ${pcapScenarios.length} PCAP` : ''} scenarios`);
 
     try {
       const configResult = await window.fuzzer.distributedConfigure({
         clientScenarios: clientScenariosFinal.length > 0 ? clientScenariosFinal : null,
         serverScenarios: serverScenariosFinal.length > 0 ? serverScenariosFinal : null,
+        pcapScenarios: pcapScenarios.length > 0 ? pcapScenarios : null,
         clientConfig: { host, port, delay, timeout, workers, protocol: activeProtocol, dut, pcapFile: pcapFile || null, mergePcap: !!pcapFile, baseline: baselineCheck.checked },
-        serverConfig: { hostname: host, port, delay, timeout, workers: 1, protocol: activeProtocol, dut, pcapFile: pcapFile || null, mergePcap: !!pcapFile, baseline: baselineCheck.checked },
+        serverConfig: { bindAddress: '0.0.0.0', hostname: host, port, delay, timeout, workers: 1, protocol: activeProtocol, dut, pcapFile: pcapFile || null, mergePcap: !!pcapFile, baseline: baselineCheck.checked },
       });
 
       if (configResult.error) {
@@ -1622,7 +1629,9 @@
     }
 
     // Subscribe to events
-    let agentsDone = { client: !clientScenariosFinal.length, server: !serverScenariosFinal.length };
+    const hasClientWork = clientScenariosFinal.length > 0 || pcapScenarios.length > 0;
+    const hasServerWork = serverScenariosFinal.length > 0 || pcapScenarios.length > 0;
+    let agentsDone = { client: !hasClientWork, server: !hasServerWork };
 
     unsubPacket = window.fuzzer.onPacket((evt) => {
       const roleTag = evt.agentRole ? `[${evt.agentRole}] ` : '';
@@ -1657,7 +1666,7 @@
 
     // Trigger stepped execution — one scenario pair at a time
     try {
-      const totalPairs = clientScenariosFinal.length; // Both lists are same length by construction
+      const totalPairs = clientScenariosFinal.length + pcapScenarios.length;
       addLogEntry('info', `Starting stepped distributed execution (${totalPairs} pairs)...`);
       const runResult = await window.fuzzer.distributedRunStepped({ totalPairs });
       if (runResult.error) {

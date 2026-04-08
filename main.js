@@ -1144,9 +1144,43 @@ ipcMain.handle('distributed-connect', async (_event, opts) => {
 // Configure remote agents with scenarios
 ipcMain.handle('distributed-configure', async (_event, opts) => {
   if (!controller) return { error: 'Not connected' };
-  const { clientScenarios, serverScenarios, clientConfig, serverConfig } = opts;
+  const { clientScenarios, serverScenarios, pcapScenarios, clientConfig, serverConfig } = opts;
   try {
-    const configured = await controller.configureAll(clientScenarios, serverScenarios, clientConfig, serverConfig);
+    let clientPcapScenarios = undefined;
+    let serverPcapScenarios = undefined;
+
+    if (pcapScenarios && pcapScenarios.length > 0) {
+      const { loadPcapTest } = require('./lib/pcap-scenarios');
+      const { serializePcapScenario } = require('./lib/pcap-parser');
+      
+      clientPcapScenarios = [];
+      serverPcapScenarios = [];
+      
+      for (const name of pcapScenarios) {
+        const loaded = loadPcapTest(name);
+        if (loaded && loaded.scenario) {
+          const serialized = serializePcapScenario(loaded.scenario, { hostname: clientConfig.host });
+          
+          clientPcapScenarios.push({
+            ...serialized,
+            name: serialized.name + '-client',
+            side: 'client'
+          });
+          
+          serverPcapScenarios.push({
+            ...serialized,
+            name: serialized.name + '-server',
+            side: 'server'
+          });
+        }
+      }
+    }
+
+    const configured = await controller.configureAll(
+      clientScenarios, serverScenarios, 
+      clientConfig, serverConfig,
+      clientPcapScenarios, serverPcapScenarios
+    );
     if (!configured.client && !configured.server) {
       return { error: 'No agents were configured — check connections' };
     }

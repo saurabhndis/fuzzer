@@ -259,6 +259,7 @@ async function run() {
 
   const serverConfigResult = await httpPost(SERVER_HOST, SERVER_PORT, '/configure', {
     config: {
+      bindAddress: '0.0.0.0',
       host: targetHost,
       port: TARGET_PORT,
       hostname: targetHost,
@@ -280,9 +281,10 @@ async function run() {
     side: 'client',
   };
 
+  const clientConnectHost = SERVER_HOST === 'localhost' ? '127.0.0.1' : SERVER_HOST;
   const clientConfigResult = await httpPost(CLIENT_HOST, CLIENT_PORT, '/configure', {
     config: {
-      host: targetHost,
+      host: clientConnectHost,
       port: TARGET_PORT,
       protocol: serialized.protocol || 'tls',
       workers: 1,
