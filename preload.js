@@ -13,6 +13,7 @@ contextBridge.exposeInMainWorld('fuzzer', {
   saveStandaloneScript: (content) => ipcRenderer.invoke('save-standalone-script', content),
   addScenarioToLibrary: (scenario) => ipcRenderer.invoke('add-scenario-to-library', scenario),
   savePcapTest: (scenario) => ipcRenderer.invoke('save-pcap-test', scenario),
+  deletePcapTest: (name) => ipcRenderer.invoke('delete-pcap-test', name),
   savePcapDialog: () => ipcRenderer.invoke('save-pcap-dialog'),
   saveLogToFile: (path, content) => ipcRenderer.invoke('save-log-to-file', path, content),
   onPacket: (cb) => {

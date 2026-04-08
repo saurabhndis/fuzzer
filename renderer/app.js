@@ -77,7 +77,7 @@
   const pcapTransformPlan = document.getElementById('pcapTransformPlan');
   const pcapActionsList = document.getElementById('pcapActionsList');
   const pcapRunNowBtn = document.getElementById('pcapRunNowBtn');
-  const pcapSaveToSuiteCheck = document.getElementById('pcapSaveToSuiteCheck');
+  const pcapSaveTestBtn = document.getElementById('pcapSaveTestBtn');
   const pcapBackToStreams = document.getElementById('pcapBackToStreams');
   const closePcapModal = document.getElementById('closePcapModal');
 
@@ -603,6 +603,29 @@
         item.appendChild(cb);
         item.appendChild(nameSpan);
         item.appendChild(sideTag);
+
+        // Add delete button for PCAP scenarios
+        if (cat === 'PCAP') {
+          const delBtn = document.createElement('button');
+          delBtn.className = 'btn-tiny pcap-delete-btn';
+          delBtn.textContent = '\u2715';
+          delBtn.title = 'Delete this saved PCAP test';
+          delBtn.style.cssText = 'margin-left:auto; color:var(--danger); border-color:var(--danger); font-size:10px; padding:1px 5px; cursor:pointer;';
+          delBtn.addEventListener('click', async (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            if (!confirm(`Delete saved PCAP test "${s.name}"?`)) return;
+            const result = await window.fuzzer.deletePcapTest(s.name);
+            if (result && result.ok) {
+              item.remove();
+              addLogEntry('info', `Deleted PCAP test: ${s.name}`);
+            } else {
+              addLogEntry('error', `Failed to delete: ${result ? result.error : 'unknown'}`);
+            }
+          });
+          item.appendChild(delBtn);
+        }
+
         itemsDiv.appendChild(item);
       }
 
@@ -1161,6 +1184,8 @@
 
     pcapScenarioName.value = currentPcapScenario.name;
     pcapScenarioDesc.value = currentPcapScenario.description;
+    pcapSaveTestBtn.textContent = '\u{1F4BE} SAVE TEST';
+    pcapSaveTestBtn.disabled = false;
 
     // Build handshake analysis
     pcapTransformPlan.innerHTML = buildAnalysisHtml(s.handshakeAnalysis || [], s, clientActions);
@@ -1238,36 +1263,46 @@
     pcapStreamOverlay.style.display = 'flex';
   });
 
+  // Save PCAP test to suite (independent of run)
+  pcapSaveTestBtn.addEventListener('click', async () => {
+    if (!currentPcapScenario) return;
+    currentPcapScenario.name = pcapScenarioName.value.trim();
+    currentPcapScenario.description = pcapScenarioDesc.value.trim();
+
+    const clientActions = currentPcapScenario.actions();
+    const serverActions = currentPcapScenario.serverActions ? currentPcapScenario.serverActions() : [];
+    const saveData = {
+      name: currentPcapScenario.name,
+      category: currentPcapScenario.category,
+      description: currentPcapScenario.description,
+      side: currentPcapScenario.side,
+      protocol: currentPcapScenario.protocol,
+      explanation: currentPcapScenario.explanation,
+      expected: currentPcapScenario.expected,
+      expectedReason: currentPcapScenario.expectedReason,
+      pcapParams: currentPcapScenario.pcapParams,
+      actions: clientActions,
+      serverActions: serverActions,
+    };
+    const saveResult = await window.fuzzer.savePcapTest(saveData);
+    if (saveResult && saveResult.ok) {
+      addLogEntry('info', `Test saved: ${saveResult.name} — now available under TLS > PCAP Ingested Tests`);
+      pcapSaveTestBtn.textContent = '\u2713 Saved';
+      pcapSaveTestBtn.disabled = true;
+      // Refresh scenario list so the new test appears immediately
+      await loadScenarios();
+    } else {
+      addLogEntry('error', `Failed to save test: ${saveResult ? saveResult.error : 'unknown error'}`);
+    }
+  });
+
+  // Run PCAP test (does not save)
   pcapRunNowBtn.addEventListener('click', async () => {
     if (!currentPcapScenario) return;
     currentPcapScenario.name = pcapScenarioName.value.trim();
     currentPcapScenario.description = pcapScenarioDesc.value.trim();
 
-    // Save to test suite if checkbox is checked
-    if (pcapSaveToSuiteCheck.checked) {
-      const clientActions = currentPcapScenario.actions();
-      const serverActions = currentPcapScenario.serverActions ? currentPcapScenario.serverActions() : [];
-      const saveData = {
-        name: currentPcapScenario.name,
-        category: currentPcapScenario.category,
-        description: currentPcapScenario.description,
-        side: currentPcapScenario.side,
-        protocol: currentPcapScenario.protocol,
-        explanation: currentPcapScenario.explanation,
-        actions: clientActions,
-        serverActions: serverActions,
-      };
-      const saveResult = await window.fuzzer.savePcapTest(saveData);
-      if (saveResult && saveResult.ok) {
-        addLogEntry('info', `Test saved to suite: ${saveResult.name} (status: pending)`);
-        addLogEntry('info', `Verify after review: node cli.js verify-pcap-test ${saveResult.name}`);
-      } else {
-        addLogEntry('error', `Failed to save test: ${saveResult ? saveResult.error : 'unknown error'}`);
-      }
-    }
-
     // Build a plain IPC-safe scenario — functions can't cross Electron's structured clone.
-    // Pre-evaluate actions and send as arrays; main.js will wrap them back into functions.
     const clientActions = currentPcapScenario.actions();
     const serverActions = currentPcapScenario.serverActions ? currentPcapScenario.serverActions() : [];
     const runScenario = {
@@ -1285,6 +1320,12 @@
     };
 
     pcapAnalysisOverlay.style.display = 'none';
+    // PCAP tests need a local well-behaved server to replay against
+    if (!localMode) {
+      localMode = true;
+      localModeCheck.checked = true;
+      localModeCheck.dispatchEvent(new Event('change'));
+    }
     startFuzzing(runScenario);
   });
 

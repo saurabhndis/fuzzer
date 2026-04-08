@@ -1065,6 +1065,7 @@ ipcMain.handle('save-pcap-test', async (event, scenario) => {
       explanation: scenario.explanation || '',
       expected: scenario.expected || 'PASSED',
       expectedReason: scenario.expectedReason || 'PCAP session recreation',
+      pcapParams: scenario.pcapParams || {},
       actions: () => scenario.actions || [],
       serverActions: () => scenario.serverActions || [],
     };
@@ -1075,6 +1076,16 @@ ipcMain.handle('save-pcap-test', async (event, scenario) => {
     });
 
     return { ok: true, name: saved.name, filePath: saved.filePath };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+});
+
+ipcMain.handle('delete-pcap-test', async (event, name) => {
+  try {
+    const { deletePcapTest } = require('./lib/pcap-scenarios');
+    const ok = deletePcapTest(name);
+    return { ok };
   } catch (err) {
     return { ok: false, error: err.message };
   }
