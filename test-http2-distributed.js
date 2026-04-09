@@ -5,12 +5,14 @@
 // Batch 3: PAN / PAN-PQC — full coverage
 
 const http = require('http');
+const path = require('path');
 const { startAgent } = require('./lib/agent');
 const { WellBehavedServer } = require('./lib/well-behaved-server');
 const { listHttp2ClientScenarios } = require('./lib/http2-scenarios');
 
 const SERVER_PORT = 4434;
 const AGENT_PORT = 9251;
+const PCAP_FILE = path.join(__dirname, 'test-output', 'h2-distributed.pcap');
 
 function httpPost(port, path, body) {
   return new Promise((resolve, reject) => {
@@ -57,7 +59,7 @@ async function runBatch(agentPort, serverPort, scenarioNames) {
   try { await httpPost(agentPort, '/stop', {}); } catch {}
   await new Promise(r => setTimeout(r, 500));
   const configResult = await httpPost(agentPort, '/configure', {
-    config: { host: 'localhost', port: serverPort, protocol: 'h2', workers: 1, timeout: 5000, delay: 50, baseline: false },
+    config: { host: 'localhost', port: serverPort, protocol: 'h2', workers: 1, timeout: 5000, delay: 50, baseline: false, pcapFile: PCAP_FILE, mergePcap: true },
     scenarios: scenarioNames,
   });
   if (configResult.scenarioCount === 0) throw new Error('No scenarios resolved');
