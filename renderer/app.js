@@ -1896,9 +1896,16 @@
     const healthHtml = renderHealthCell(result.probe, hostDown);
     const findingHtml = renderFindingCell(result.finding);
     const firewallHtml = renderFirewallCell(result.firewallResult);
+    // In distributed mode, results from client and server agents arrive interleaved.
+    // Show a role badge so the user can tell them apart (otherwise it looks like
+    // tests are "looping" when the server agent runs SRV scenarios in parallel
+    // with the client agent's longer scenario list).
+    const roleBadge = (distributedMode && result.agentRole)
+      ? `<span class="role-badge role-${result.agentRole}" title="Result from ${result.agentRole} agent">${result.agentRole}</span> `
+      : '';
     tr.innerHTML = `
       <td class="num">${idx}</td>
-      <td>${_escHtml(scenario)}</td>
+      <td>${roleBadge}${_escHtml(scenario)}</td>
       <td>${_escHtml(cat)}</td>
       <td><span class="status-badge status-${status}">${status}</span>${downBadge}</td>
       <td style="font-size: 11px; color: var(--text-secondary);${noBaseline ? ' opacity: 0.35;' : ''}">${noBaseline ? (isH2 ? 'N/A (HTTP/2)' : 'N/A (QUIC)') : _escHtml(baseline)}</td>

@@ -589,6 +589,19 @@ body.dut-active .results-table .fw-col { display: table-cell; }
 .status-ERROR   { background: rgba(248,81,73,0.25); color: var(--red); }
 .status-ABORTED { background: rgba(139,148,158,0.15); color: var(--text-secondary); }
 
+.role-badge {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  margin-right: 4px;
+  vertical-align: middle;
+}
+.role-client { background: rgba(88,166,255,0.15); color: var(--blue, #58a6ff); }
+.role-server { background: rgba(210,153,34,0.15); color: var(--orange, #d29922); }
+
 .host-down-badge {
   display: inline-block;
   padding: 2px 6px;
