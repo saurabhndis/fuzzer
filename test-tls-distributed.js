@@ -1,14 +1,37 @@
 #!/usr/bin/env node
-// Test TLS scenarios in distributed mode with 1 worker.
-// Batch 1: Key categories (FV, Z well-behaved, FW virus, SB sandbox)
-// Batch 2: Core fuzzing (A-Y)
-// Batch 3: Scans (SCAN, PAN, PAN-PQC)
+// Test ALL TLS client scenarios in distributed mode with response verification.
+//
+// Pipeline:
+//   1. Enumerate every TLS client scenario from getClientScenarios()
+//   2. Run batched through a single client Agent + WellBehavedServer
+//   3. Verify each result semantically (well-behaved must show a real server
+//      handshake; fuzz expected-DROPPED must show an alert or close)
+//   4. Double-click (retry) any TIMEOUT or unverified result up to 2 more times
+//   5. Emit Coverage / Verification / Mismatches / Confirmed-timeouts report
+//      and write tls-verify-results.json for diffing across runs.
+//
+// CLI:
+//   node test-tls-distributed.js                  # full run
+//   node test-tls-distributed.js --category FV,Z  # only named categories
+//   node test-tls-distributed.js --only fv-tls-get
 
 const http = require('http');
 const fs = require('fs');
 const { startAgent } = require('./lib/agent');
 const { WellBehavedServer } = require('./lib/well-behaved-server');
 const { getClientScenarios } = require('./lib/scenarios');
+
+// ── CLI parsing ────────────────────────────────────────────────────────────
+function parseArgs(argv) {
+  const out = { category: null, only: null };
+  for (let i = 2; i < argv.length; i++) {
+    const a = argv[i];
+    if (a === '--category' && argv[i + 1]) { out.category = argv[++i].split(',').map(s => s.trim()).filter(Boolean); }
+    else if (a === '--only' && argv[i + 1]) { out.only = argv[++i]; }
+  }
+  return out;
+}
+const ARGS = parseArgs(process.argv);
 
 const SERVER_PORT = 4435;
 const AGENT_PORT = 9252;
@@ -121,6 +144,97 @@ async function runBatch(agentPort, serverPort, scenarioNames) {
   return await httpGet(agentPort, '/results');
 }
 
+// ── Semantic verification ─────────────────────────────────────────────────
+// Classifies a single result as ok | mismatch | unverified given expected +
+// status + response text. `response` is already a parsed, human-readable
+// description produced by lib/unified-client.js — see lastResponse at
+// unified-client.js:295-770. We deliberately key off the strings it emits
+// (ServerHelloDone, "TLS 1.3", "handshake completed", "HTTP/1.1 200",
+// "Alert(fatal...", "Encrypted alert", "Connection closed").
+const HANDSHAKE_OK_RE = /ServerHelloDone|TLS 1\.3|handshake completed|handshake successful|HTTP\b.*\b200|HEAD 200|ServerHello\b|\d+\/\d+\b.*\b(responses|requests|OK)|POST echo|POST \+ GET|POST=OK|GET=OK/i;
+const REJECT_RE = /^Alert\b|Encrypted alert|Connection closed|Connection reset|ApplicationData/i;
+
+function verifyResult(r, expected) {
+  const status = r.status;
+  const resp = (r.response || '').trim();
+
+  // Protocol-level alerts are always correct — grader treats these as PASS.
+  if (status === 'tls-alert-server' || status === 'tls-alert-client') {
+    return { verify: 'ok', reason: 'protocol alert' };
+  }
+  if (status === 'ERROR' || status === 'ABORTED' || status === 'SKIPPED') {
+    return { verify: 'mismatch', reason: `${status.toLowerCase()}: ${resp.substring(0, 120)}` };
+  }
+
+  if (expected === 'PASSED') {
+    if (status !== 'PASSED') {
+      return { verify: 'mismatch', reason: `expected PASSED, got ${status}` };
+    }
+    if (!HANDSHAKE_OK_RE.test(resp)) {
+      return { verify: 'unverified', reason: `PASSED but response lacks handshake marker: "${resp.substring(0, 120)}"` };
+    }
+    return { verify: 'ok', reason: 'handshake completed' };
+  }
+
+  if (expected === 'DROPPED') {
+    if (status === 'PASSED') {
+      return { verify: 'mismatch', reason: `expected DROPPED, server ACCEPTED: "${resp.substring(0, 120)}"` };
+    }
+    if (status === 'TIMEOUT') {
+      // Don't trust a single TIMEOUT — retry layer will double-click it.
+      return { verify: 'unverified', reason: 'TIMEOUT — no server response observed' };
+    }
+    if (status === 'DROPPED' && !REJECT_RE.test(resp)) {
+      // DROPPED with no alert/close marker means the client gave up without
+      // a concrete server reaction — double-click to rule out flake.
+      return { verify: 'unverified', reason: `DROPPED without alert/close marker: "${resp.substring(0, 120)}"` };
+    }
+    return { verify: 'ok', reason: 'server rejected' };
+  }
+
+  // No expected value — informational, don't fail.
+  return { verify: 'ok', reason: 'no expected value' };
+}
+
+// ── Retry loop ────────────────────────────────────────────────────────────
+const MAX_ATTEMPTS = 3; // 1 initial + 2 retries
+
+async function doubleClick(agentPort, serverPort, needsRetry, expectedMap) {
+  if (needsRetry.length === 0) return new Map();
+  console.log(`\n── DOUBLE-CLICK: retrying ${needsRetry.length} unverified/TIMEOUT results ──`);
+  const history = new Map(); // scenario → [attempt1, attempt2, attempt3]
+  for (const r of needsRetry) history.set(r.scenario, [r]);
+
+  for (let attempt = 2; attempt <= MAX_ATTEMPTS; attempt++) {
+    const pending = [...history.entries()]
+      .filter(([, atts]) => {
+        const last = atts[atts.length - 1];
+        const v = verifyResult(last, expectedMap[last.scenario]);
+        return v.verify !== 'ok';
+      })
+      .map(([name]) => name);
+    if (pending.length === 0) break;
+    console.log(`  attempt ${attempt}/${MAX_ATTEMPTS}: re-running ${pending.length} scenarios`);
+    const results = await runBatch(agentPort, serverPort, pending);
+    for (const r of results) {
+      const atts = history.get(r.scenario);
+      if (atts) atts.push(r);
+    }
+  }
+  return history;
+}
+
+// Classify a retry history into: recovered | flake | confirmed-timeout | confirmed-mismatch
+function classifyRetry(attempts, expected) {
+  const verdicts = attempts.map(a => verifyResult(a, expected).verify);
+  const final = attempts[attempts.length - 1];
+  if (verdicts[verdicts.length - 1] === 'ok') {
+    return verdicts.some(v => v !== 'ok') ? 'flake' : 'ok';
+  }
+  if (attempts.every(a => a.status === 'TIMEOUT')) return 'confirmed-timeout';
+  return 'confirmed-mismatch';
+}
+
 async function run() {
   const allScenarios = getClientScenarios();
   const expectedMap = {};
@@ -136,138 +250,203 @@ async function run() {
     byCategory[s.category].push(s.name);
   }
 
-  console.log(`Total TLS client scenarios: ${allScenarios.length}`);
+  // ── Coverage selection ────────────────────────────────────────────────
+  let selectedCats = Object.keys(byCategory).sort();
+  if (ARGS.category) selectedCats = selectedCats.filter(c => ARGS.category.includes(c));
+
+  let selection = selectedCats.flatMap(c => byCategory[c].map(name => ({ name, category: c })));
+  if (ARGS.only) selection = selection.filter(s => s.name === ARGS.only);
+
+  console.log('══════════════════════════════════════════════════');
+  console.log('  COVERAGE');
+  console.log('══════════════════════════════════════════════════');
+  console.log(`  Total TLS client scenarios in repo: ${allScenarios.length}`);
+  console.log(`  Selected for this run:              ${selection.length}`);
+  if (ARGS.category) console.log(`  Filter --category: ${ARGS.category.join(',')}`);
+  if (ARGS.only) console.log(`  Filter --only: ${ARGS.only}`);
+  for (const c of selectedCats) {
+    const count = byCategory[c].filter(n => selection.find(s => s.name === n)).length;
+    if (count > 0) console.log(`    ${c.padEnd(10)} ${String(count).padStart(4)}`);
+  }
+  console.log('  NOTE: server-side TLS scenarios (SRV, 34 total) are out of scope for this harness.');
+
+  if (selection.length === 0) {
+    console.error('No scenarios selected — check --category/--only filters.');
+    process.exit(1);
+  }
 
   const server = new WellBehavedServer({ hostname: 'localhost', port: SERVER_PORT, logger: null });
   await server.startTLS();
   const actualPort = server._actualPort || SERVER_PORT;
-  console.log(`Server on port ${actualPort}`);
+  console.log(`\nServer on port ${actualPort}`);
 
   const agent = startAgent('client', { controlPort: AGENT_PORT });
   await new Promise(r => setTimeout(r, 1000));
   startLogCollector(AGENT_PORT);
 
+  // Batch by category (keeps /configure payloads reasonable and lets progress
+  // output reflect which area is currently running).
+  const selectedNames = new Set(selection.map(s => s.name));
+  const batches = selectedCats
+    .map(c => ({ cat: c, names: byCategory[c].filter(n => selectedNames.has(n)) }))
+    .filter(b => b.names.length > 0);
+
   const allResults = [];
 
   try {
-    // ── Batch 1: FV + Z + FW + SB (key categories) ──
-    const keyCats = ['FV', 'Z', 'FW', 'SB'];
-    const keyNames = keyCats.flatMap(c => byCategory[c] || []);
-    console.log(`\n── BATCH 1: Well-behaved + Virus + Sandbox (${keyNames.length} scenarios) ──`);
-    const r1 = await runBatch(AGENT_PORT, actualPort, keyNames);
-    allResults.push(...r1);
-    console.log(`  Done: ${r1.length} results`);
-
-    // ── Batch 2: Native TLS fuzzing (A-Y) ──
-    const nativeCats = ['A','C','D','E','F','G','H','I','J','K','L','M','N','O','P','Q','R','S','T','U','V','W','X','Y'];
-    const nativeNames = nativeCats.flatMap(c => byCategory[c] || []);
-    console.log(`\n── BATCH 2: Native TLS fuzz categories (${nativeNames.length} scenarios) ──`);
-    const r2 = await runBatch(AGENT_PORT, actualPort, nativeNames);
-    allResults.push(...r2);
-    console.log(`  Done: ${r2.length} results`);
-
-    // ── Batch 3: Scan / PAN / PAN-PQC ──
-    const scanCats = ['SCAN', 'PAN', 'PAN-PQC'];
-    const scanNames = scanCats.flatMap(c => byCategory[c] || []);
-    console.log(`\n── BATCH 3: Scan/probe categories (${scanNames.length} scenarios) ──`);
-    const r3 = await runBatch(AGENT_PORT, actualPort, scanNames);
-    allResults.push(...r3);
-    console.log(`  Done: ${r3.length} results`);
-
-    // ═══════════════════════════════════════════════════
-    // ANALYSIS
-    // ═══════════════════════════════════════════════════
-    console.log(`\n\nTotal results: ${allResults.length}`);
-
-    const catResults = {};
-    const suspicious = [];
-    for (const r of allResults) {
-      const cat = categoryMap[r.scenario] || 'unknown';
-      if (!catResults[cat]) catResults[cat] = [];
-      catResults[cat].push(r);
-      const expected = expectedMap[r.scenario];
-      if (expected && r.status !== expected) suspicious.push(r);
-      if (r.status === 'ERROR') suspicious.push(r);
+    for (const b of batches) {
+      console.log(`\n── BATCH [${b.cat}] ${b.names.length} scenarios ──`);
+      const rs = await runBatch(AGENT_PORT, actualPort, b.names);
+      allResults.push(...rs);
+      console.log(`  Done: ${rs.length} results`);
     }
 
-    // Per-category summary
+    // ── Verification pass ────────────────────────────────────────────
+    for (const r of allResults) {
+      const expected = expectedMap[r.scenario];
+      Object.assign(r, verifyResult(r, expected), { expected, category: categoryMap[r.scenario] });
+    }
+
+    // ── Double-click unverified / TIMEOUT ────────────────────────────
+    const needsRetry = allResults.filter(r => r.verify !== 'ok');
+    const retryHistory = await doubleClick(AGENT_PORT, actualPort, needsRetry, expectedMap);
+
+    // Apply retry outcomes back to allResults.
+    const finalRetry = new Map(); // scenario → classification
+    for (const [name, atts] of retryHistory.entries()) {
+      const expected = expectedMap[name];
+      const cls = classifyRetry(atts, expected);
+      finalRetry.set(name, { classification: cls, attempts: atts });
+      // Replace allResults entry with the last attempt + classification.
+      const idx = allResults.findIndex(r => r.scenario === name);
+      if (idx >= 0) {
+        const last = atts[atts.length - 1];
+        Object.assign(allResults[idx], last, verifyResult(last, expected), {
+          expected,
+          category: categoryMap[name],
+          retryClassification: cls,
+          retryAttemptCount: atts.length,
+        });
+      }
+    }
+
+    // ═══════════════════════════════════════════════════
+    // REPORT
+    // ═══════════════════════════════════════════════════
+
+    // Per-category summary (status breakdown)
+    const catResults = {};
+    for (const r of allResults) {
+      const cat = r.category || 'unknown';
+      if (!catResults[cat]) catResults[cat] = [];
+      catResults[cat].push(r);
+    }
     console.log('\n══════════════════════════════════════════════════');
-    console.log('  PER-CATEGORY SUMMARY');
+    console.log('  PER-CATEGORY STATUS');
     console.log('══════════════════════════════════════════════════');
     for (const [cat, items] of Object.entries(catResults).sort()) {
       const counts = {};
       for (const r of items) counts[r.status] = (counts[r.status] || 0) + 1;
-      const parts = Object.entries(counts).sort().map(([k,v]) => `${k}:${v}`).join(' ');
-      console.log(`  ${cat.padEnd(8)} ${String(items.length).padStart(4)} total | ${parts}`);
+      const parts = Object.entries(counts).sort().map(([k, v]) => `${k}:${v}`).join(' ');
+      console.log(`  ${cat.padEnd(10)} ${String(items.length).padStart(4)} total | ${parts}`);
     }
 
-    // ── Well-behaved (FV / Z) ──
+    // Verification totals
+    const verifyCounts = { ok: 0, mismatch: 0, unverified: 0, flake: 0, 'confirmed-timeout': 0, 'confirmed-mismatch': 0 };
+    for (const r of allResults) {
+      const cls = r.retryClassification || r.verify;
+      verifyCounts[cls] = (verifyCounts[cls] || 0) + 1;
+    }
     console.log('\n══════════════════════════════════════════════════');
-    console.log('  WELL-BEHAVED SCENARIOS (FV / Z)');
+    console.log('  VERIFICATION RESULTS');
     console.log('══════════════════════════════════════════════════');
-    for (const cat of ['FV', 'Z']) {
-      for (const r of (catResults[cat] || [])) {
-        const expected = expectedMap[r.scenario];
-        const ok = r.status === expected;
-        console.log(`  ${ok ? '✓' : '✗ UNEXPECTED'} ${r.scenario}: ${r.status} (expected ${expected})`);
-        console.log(`      response: ${(r.response || '').substring(0, 150)}`);
-      }
+    for (const [k, v] of Object.entries(verifyCounts)) {
+      if (v > 0) console.log(`  ${k.padEnd(22)} ${v}`);
     }
 
-    // ── Virus (FW) ──
+    // Mismatches — the actionable list
+    const mismatches = allResults.filter(r => {
+      const cls = r.retryClassification || r.verify;
+      return cls === 'mismatch' || cls === 'confirmed-mismatch';
+    });
     console.log('\n══════════════════════════════════════════════════');
-    console.log('  VIRUS / FIREWALL SCENARIOS (FW)');
+    console.log('  MISMATCHES');
     console.log('══════════════════════════════════════════════════');
-    for (const r of (catResults.FW || [])) {
-      const expected = expectedMap[r.scenario];
-      const ok = r.status === expected;
-      console.log(`  ${ok ? '✓' : '✗'} ${r.scenario}: ${r.status} (expected ${expected})`);
-      console.log(`      response: ${(r.response || '').substring(0, 150)}`);
-    }
-
-    // ── Sandbox (SB) ──
-    console.log('\n══════════════════════════════════════════════════');
-    console.log('  SANDBOX SCENARIOS (SB)');
-    console.log('══════════════════════════════════════════════════');
-    for (const r of (catResults.SB || [])) {
-      const expected = expectedMap[r.scenario];
-      const ok = r.status === expected;
-      console.log(`  ${ok ? '✓' : '✗'} ${r.scenario}: ${r.status} (expected ${expected})`);
-      console.log(`      response: ${(r.response || '').substring(0, 150)}`);
-    }
-
-    // ── Suspicious ──
-    const seen = new Set();
-    const unique = suspicious.filter(r => { if (seen.has(r.scenario)) return false; seen.add(r.scenario); return true; });
-    console.log('\n══════════════════════════════════════════════════');
-    console.log('  SUSPICIOUS / UNEXPECTED FAILURES');
-    console.log('══════════════════════════════════════════════════');
-    if (unique.length === 0) {
-      console.log('  None! All scenarios matched expected outcomes.');
+    if (mismatches.length === 0) {
+      console.log('  None — all scenarios produced correct responses.');
     } else {
-      console.log(`  ${unique.length} suspicious results:`);
-      for (const r of unique) {
-        console.log(`  - ${r.scenario} [${categoryMap[r.scenario]}]: got ${r.status}, expected ${expectedMap[r.scenario] || '?'}`);
-        console.log(`    ${(r.response || '').substring(0, 200)}`);
+      for (const r of mismatches) {
+        console.log(`  ✗ ${r.scenario} [${r.category}] expected=${r.expected} status=${r.status}`);
+        console.log(`      reason: ${r.reason}`);
+        console.log(`      response: ${(r.response || '').substring(0, 200)}`);
       }
     }
 
-    // ── Final ──
-    const byStatus = {};
-    for (const r of allResults) byStatus[r.status] = (byStatus[r.status] || 0) + 1;
+    // Confirmed timeouts — genuine server hangs, the real investigation targets
+    const confirmed = allResults.filter(r => r.retryClassification === 'confirmed-timeout');
     console.log('\n══════════════════════════════════════════════════');
-    console.log('  FINAL SUMMARY');
+    console.log('  CONFIRMED TIMEOUTS (all retries timed out)');
     console.log('══════════════════════════════════════════════════');
-    console.log(`  Total:      ${allResults.length}`);
-    for (const [s,c] of Object.entries(byStatus).sort()) console.log(`  ${s.padEnd(10)}  ${c}`);
-    console.log(`  Suspicious: ${unique.length}`);
+    if (confirmed.length === 0) {
+      console.log('  None — no scenario timed out across all retry attempts.');
+    } else {
+      confirmed.sort((a, b) => (a.category || '').localeCompare(b.category || ''));
+      for (const r of confirmed) {
+        console.log(`  ⏱ ${r.scenario} [${r.category}] expected=${r.expected}`);
+      }
+    }
+
+    // Flakes — worth noting, not failing
+    const flakes = allResults.filter(r => r.retryClassification === 'flake');
+    if (flakes.length > 0) {
+      console.log('\n══════════════════════════════════════════════════');
+      console.log(`  FLAKES (recovered on retry, ${flakes.length})`);
+      console.log('══════════════════════════════════════════════════');
+      for (const r of flakes) {
+        console.log(`  ↻ ${r.scenario} [${r.category}] — succeeded after ${r.retryAttemptCount} attempts`);
+      }
+    }
+
+    // Final status line
+    console.log('\n══════════════════════════════════════════════════');
+    console.log('  FINAL');
     console.log('══════════════════════════════════════════════════');
+    console.log(`  Total:              ${allResults.length}`);
+    console.log(`  OK:                 ${verifyCounts.ok || 0}`);
+    console.log(`  Mismatches:         ${mismatches.length}`);
+    console.log(`  Confirmed timeouts: ${confirmed.length}`);
+    console.log(`  Flakes:             ${flakes.length}`);
+    console.log('══════════════════════════════════════════════════');
+
+    // Persist structured results for diffing across runs
+    const outPath = 'tls-verify-results.json';
+    fs.writeFileSync(outPath, JSON.stringify({
+      timestamp: new Date().toISOString(),
+      total: allResults.length,
+      verifyCounts,
+      results: allResults.map(r => ({
+        scenario: r.scenario,
+        category: r.category,
+        expected: r.expected,
+        status: r.status,
+        response: (r.response || '').substring(0, 500),
+        verify: r.verify,
+        reason: r.reason,
+        retryClassification: r.retryClassification || null,
+        retryAttemptCount: r.retryAttemptCount || 1,
+      })),
+    }, null, 2));
+    console.log(`\n  Wrote ${outPath}`);
+
+    // Exit code: fail if any mismatch or confirmed-timeout
+    const failed = mismatches.length + confirmed.length;
+    process.exitCode = failed > 0 ? 1 : 0;
 
   } finally {
     try { await httpPost(AGENT_PORT, '/stop', {}); } catch {}
     try { server.stop(); } catch {}
     try { agent.close(); } catch {}
-    setTimeout(() => process.exit(0), 2000);
+    setTimeout(() => process.exit(process.exitCode || 0), 2000);
   }
 }
 

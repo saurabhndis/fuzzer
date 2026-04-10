@@ -35,6 +35,10 @@ let firewallWindow = null;
 let activeClient = null;
 let activeServer = null;
 let controller = null;
+// Unsubscribe handle for the current distributed run's event listener.
+// Held at module scope so we can detach it on stop or before the next run,
+// preventing controller.listeners from accumulating across runs.
+let currentDistributedUnsub = null;
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -1194,8 +1198,13 @@ ipcMain.handle('distributed-configure', async (_event, opts) => {
 ipcMain.handle('distributed-run', async () => {
   if (!controller) return { error: 'Not connected' };
 
+  // Tear down any leftover listener from a prior run before subscribing,
+  // otherwise events get broadcast through every accumulated listener and
+  // results show up multiple times in the UI.
+  if (currentDistributedUnsub) { try { currentDistributedUnsub(); } catch (_) {} currentDistributedUnsub = null; }
+
   // Subscribe to all events from both agents and relay via IPC
-  controller.onEvent((role, event) => {
+  currentDistributedUnsub = controller.onEvent((role, event) => {
     switch (event.type) {
       case 'logger':
         send('fuzzer-packet', { ...event.event, agentRole: role });
@@ -1235,8 +1244,12 @@ ipcMain.handle('distributed-run-stepped', async (_event, opts) => {
 
   const { totalPairs } = opts;
 
+  // Tear down any leftover listener from a prior run before subscribing —
+  // see distributed-run for the rationale.
+  if (currentDistributedUnsub) { try { currentDistributedUnsub(); } catch (_) {} currentDistributedUnsub = null; }
+
   // Subscribe to all events from both agents and relay via IPC
-  controller.onEvent((role, event) => {
+  currentDistributedUnsub = controller.onEvent((role, event) => {
     switch (event.type) {
       case 'logger':
         send('fuzzer-packet', { ...event.event, agentRole: role });
@@ -1275,6 +1288,9 @@ ipcMain.handle('distributed-stop', async () => {
   if (!controller) return { error: 'Not connected' };
   try {
     await controller.stopAll();
+    // Detach the run's event listener so any straggling events from the
+    // in-flight scenario don't get re-broadcast into the next run.
+    if (currentDistributedUnsub) { try { currentDistributedUnsub(); } catch (_) {} currentDistributedUnsub = null; }
     return { ok: true };
   } catch (err) {
     return { error: err.message };
