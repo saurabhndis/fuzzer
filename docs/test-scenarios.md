@@ -1,6 +1,6 @@
 # Test Scenario Reference
 
-Complete catalog of all fuzzer test scenarios across **1908 tests** in **6 protocols**.
+Complete catalog of all fuzzer test scenarios across **1902 tests** in **6 protocols**.
 
 ## How to Read This Document
 
@@ -76,8 +76,8 @@ Each test sends crafted protocol data and checks the target's response:
   - [QF: QUIC Frame Structure & Mutation (2)](#qf-quic-frame-structure-mutation)
   - [QS: QUIC Server-Side Fuzzing (20)](#qs-quic-server-side-fuzzing)
   - [PAN: PAN-OS URL Category SNI Probes (270)](#pan-pan-os-url-category-sni-probes)
-- [**QUIC Scan** (38 tests)](#quic-scan-scenarios)
-  - [QSCAN: QUIC Compatibility Scanning (Non-fuzzing) (38)](#qscan-quic-compatibility-scanning-non-fuzzing)
+- [**QUIC Scan** (32 tests)](#quic-scan-scenarios)
+  - [QSCAN: QUIC Compatibility Scanning (Non-fuzzing) (32)](#qscan-quic-compatibility-scanning-non-fuzzing)
 - [**Raw TCP** (53 tests)](#raw-tcp-scenarios)
   - [RA: TCP SYN Attacks (5)](#ra-tcp-syn-attacks)
   - [RB: TCP RST Injection (5)](#rb-tcp-rst-injection)
@@ -2285,7 +2285,7 @@ Each test sends crafted protocol data and checks the target's response:
 
 ### QSCAN: QUIC Compatibility Scanning (Non-fuzzing)
 
-> ⚪ info · 38 tests · 38 Client → Server
+> ⚪ info · 32 tests · 32 Client → Server
 
 | # | Scenario | Side | Description | Expected | Pass/Fail Criteria |
 |--:|----------|:----:|-------------|:--------:|-------------------|
@@ -2297,36 +2297,30 @@ Each test sends crafted protocol data and checks the target's response:
 | 6 | `qscan-quicv1-tls-aes-128-gcm-sha256-mlkem1024` | → | QUIC scan: QUICv1 + TLS_AES_128_GCM_SHA256 + MLKEM1024 | DROPPED | ✅ if rejected; ❌ if accepted. Must reject QUIC compatibility scanning |
 | 7 | `qscan-quicv1-tls-aes-128-gcm-sha256-x25519-mlkem768` | → | QUIC scan: QUICv1 + TLS_AES_128_GCM_SHA256 + X25519_MLKEM768 | DROPPED | ✅ if rejected; ❌ if accepted. Must reject QUIC compatibility scanning |
 | 8 | `qscan-quicv1-tls-aes-128-gcm-sha256-p256-mlkem768` | → | QUIC scan: QUICv1 + TLS_AES_128_GCM_SHA256 + P256_MLKEM768 | DROPPED | ✅ if rejected; ❌ if accepted. Must reject QUIC compatibility scanning |
-| 9 | `qscan-quicv1-tls-aes-128-gcm-sha256-x25519-frodokem-640-shake` | → | QUIC scan: QUICv1 + TLS_AES_128_GCM_SHA256 + X25519_FRODOKEM_640_SHAKE | DROPPED | ✅ if rejected; ❌ if accepted. Must reject QUIC compatibility scanning |
-| 10 | `qscan-quicv1-tls-aes-128-gcm-sha256-x25519-classic-mceliece-348864` | → | QUIC scan: QUICv1 + TLS_AES_128_GCM_SHA256 + X25519_CLASSIC_MCELIECE_348864 | DROPPED | ✅ if rejected; ❌ if accepted. Must reject QUIC compatibility scanning |
-| 11 | `qscan-quicv1-tls-aes-256-gcm-sha384-x25519` | → | QUIC scan: QUICv1 + TLS_AES_256_GCM_SHA384 + X25519 | PASSED | ✅ if accepted; ⚠️ if rejected. Server responds if it supports this combination |
-| 12 | `qscan-quicv1-tls-aes-256-gcm-sha384-p-256` | → | QUIC scan: QUICv1 + TLS_AES_256_GCM_SHA384 + P-256 | PASSED | ✅ if accepted; ⚠️ if rejected. Server responds if it supports this combination |
-| 13 | `qscan-quicv1-tls-aes-256-gcm-sha384-p-384` | → | QUIC scan: QUICv1 + TLS_AES_256_GCM_SHA384 + P-384 | PASSED | ✅ if accepted; ⚠️ if rejected. Server responds if it supports this combination |
-| 14 | `qscan-quicv1-tls-aes-256-gcm-sha384-p-521` | → | QUIC scan: QUICv1 + TLS_AES_256_GCM_SHA384 + P-521 | PASSED | ✅ if accepted; ⚠️ if rejected. Server responds if it supports this combination |
-| 15 | `qscan-quicv1-tls-aes-256-gcm-sha384-mlkem768` | → | QUIC scan: QUICv1 + TLS_AES_256_GCM_SHA384 + MLKEM768 | DROPPED | ✅ if rejected; ❌ if accepted. Must reject QUIC compatibility scanning |
-| 16 | `qscan-quicv1-tls-aes-256-gcm-sha384-mlkem1024` | → | QUIC scan: QUICv1 + TLS_AES_256_GCM_SHA384 + MLKEM1024 | DROPPED | ✅ if rejected; ❌ if accepted. Must reject QUIC compatibility scanning |
-| 17 | `qscan-quicv1-tls-aes-256-gcm-sha384-x25519-mlkem768` | → | QUIC scan: QUICv1 + TLS_AES_256_GCM_SHA384 + X25519_MLKEM768 | DROPPED | ✅ if rejected; ❌ if accepted. Must reject QUIC compatibility scanning |
-| 18 | `qscan-quicv1-tls-aes-256-gcm-sha384-p256-mlkem768` | → | QUIC scan: QUICv1 + TLS_AES_256_GCM_SHA384 + P256_MLKEM768 | DROPPED | ✅ if rejected; ❌ if accepted. Must reject QUIC compatibility scanning |
-| 19 | `qscan-quicv1-tls-aes-256-gcm-sha384-x25519-frodokem-640-shake` | → | QUIC scan: QUICv1 + TLS_AES_256_GCM_SHA384 + X25519_FRODOKEM_640_SHAKE | DROPPED | ✅ if rejected; ❌ if accepted. Must reject QUIC compatibility scanning |
-| 20 | `qscan-quicv1-tls-aes-256-gcm-sha384-x25519-classic-mceliece-348864` | → | QUIC scan: QUICv1 + TLS_AES_256_GCM_SHA384 + X25519_CLASSIC_MCELIECE_348864 | DROPPED | ✅ if rejected; ❌ if accepted. Must reject QUIC compatibility scanning |
-| 21 | `qscan-quicv1-tls-chacha20-poly1305-sha256-x25519` | → | QUIC scan: QUICv1 + TLS_CHACHA20_POLY1305_SHA256 + X25519 | PASSED | ✅ if accepted; ⚠️ if rejected. Server responds if it supports this combination |
-| 22 | `qscan-quicv1-tls-chacha20-poly1305-sha256-p-256` | → | QUIC scan: QUICv1 + TLS_CHACHA20_POLY1305_SHA256 + P-256 | PASSED | ✅ if accepted; ⚠️ if rejected. Server responds if it supports this combination |
-| 23 | `qscan-quicv1-tls-chacha20-poly1305-sha256-p-384` | → | QUIC scan: QUICv1 + TLS_CHACHA20_POLY1305_SHA256 + P-384 | PASSED | ✅ if accepted; ⚠️ if rejected. Server responds if it supports this combination |
-| 24 | `qscan-quicv1-tls-chacha20-poly1305-sha256-p-521` | → | QUIC scan: QUICv1 + TLS_CHACHA20_POLY1305_SHA256 + P-521 | PASSED | ✅ if accepted; ⚠️ if rejected. Server responds if it supports this combination |
-| 25 | `qscan-quicv1-tls-chacha20-poly1305-sha256-mlkem768` | → | QUIC scan: QUICv1 + TLS_CHACHA20_POLY1305_SHA256 + MLKEM768 | DROPPED | ✅ if rejected; ❌ if accepted. Must reject QUIC compatibility scanning |
-| 26 | `qscan-quicv1-tls-chacha20-poly1305-sha256-mlkem1024` | → | QUIC scan: QUICv1 + TLS_CHACHA20_POLY1305_SHA256 + MLKEM1024 | DROPPED | ✅ if rejected; ❌ if accepted. Must reject QUIC compatibility scanning |
-| 27 | `qscan-quicv1-tls-chacha20-poly1305-sha256-x25519-mlkem768` | → | QUIC scan: QUICv1 + TLS_CHACHA20_POLY1305_SHA256 + X25519_MLKEM768 | DROPPED | ✅ if rejected; ❌ if accepted. Must reject QUIC compatibility scanning |
-| 28 | `qscan-quicv1-tls-chacha20-poly1305-sha256-p256-mlkem768` | → | QUIC scan: QUICv1 + TLS_CHACHA20_POLY1305_SHA256 + P256_MLKEM768 | DROPPED | ✅ if rejected; ❌ if accepted. Must reject QUIC compatibility scanning |
-| 29 | `qscan-quicv1-tls-chacha20-poly1305-sha256-x25519-frodokem-640-shake` | → | QUIC scan: QUICv1 + TLS_CHACHA20_POLY1305_SHA256 + X25519_FRODOKEM_640_SHAKE | DROPPED | ✅ if rejected; ❌ if accepted. Must reject QUIC compatibility scanning |
-| 30 | `qscan-quicv1-tls-chacha20-poly1305-sha256-x25519-classic-mceliece-348864` | → | QUIC scan: QUICv1 + TLS_CHACHA20_POLY1305_SHA256 + X25519_CLASSIC_MCELIECE_348864 | DROPPED | ✅ if rejected; ❌ if accepted. Must reject QUIC compatibility scanning |
-| 31 | `qscan-alpn-h3` | → | QUIC scan: ALPN h3 support | PASSED | ✅ if accepted; ⚠️ if rejected. Server responds if it supports this combination |
-| 32 | `qscan-alpn-h3-29` | → | QUIC scan: ALPN h3-29 support | PASSED | ✅ if accepted; ⚠️ if rejected. Server responds if it supports this combination |
-| 33 | `qscan-alpn-h3-32` | → | QUIC scan: ALPN h3-32 support | PASSED | ✅ if accepted; ⚠️ if rejected. Server responds if it supports this combination |
-| 34 | `qscan-version-negotiation` | → | QUIC scan: Version Negotiation probe — sends unknown version to discover supported versions | PASSED | ✅ if accepted; ⚠️ if rejected. Server should respond with Version Negotiation listing supported versions |
-| 35 | `qscan-grease-extensions` | → | QUIC scan: GREASE (RFC 8701) tolerance — sends random unknown extensions | PASSED | ✅ if accepted; ⚠️ if rejected. Server responds if it supports this combination |
-| 36 | `qscan-sigalg-ecdsa-p256` | → | QUIC scan: Signature Algorithm ecdsa-p256 support | PASSED | ✅ if accepted; ⚠️ if rejected. Server responds if it supports this combination |
-| 37 | `qscan-sigalg-rsa-pss-sha256` | → | QUIC scan: Signature Algorithm rsa-pss-sha256 support | PASSED | ✅ if accepted; ⚠️ if rejected. Server responds if it supports this combination |
-| 38 | `qscan-sigalg-ed25519` | → | QUIC scan: Signature Algorithm ed25519 support | PASSED | ✅ if accepted; ⚠️ if rejected. Server responds if it supports this combination |
+| 9 | `qscan-quicv1-tls-aes-256-gcm-sha384-x25519` | → | QUIC scan: QUICv1 + TLS_AES_256_GCM_SHA384 + X25519 | PASSED | ✅ if accepted; ⚠️ if rejected. Server responds if it supports this combination |
+| 10 | `qscan-quicv1-tls-aes-256-gcm-sha384-p-256` | → | QUIC scan: QUICv1 + TLS_AES_256_GCM_SHA384 + P-256 | PASSED | ✅ if accepted; ⚠️ if rejected. Server responds if it supports this combination |
+| 11 | `qscan-quicv1-tls-aes-256-gcm-sha384-p-384` | → | QUIC scan: QUICv1 + TLS_AES_256_GCM_SHA384 + P-384 | PASSED | ✅ if accepted; ⚠️ if rejected. Server responds if it supports this combination |
+| 12 | `qscan-quicv1-tls-aes-256-gcm-sha384-p-521` | → | QUIC scan: QUICv1 + TLS_AES_256_GCM_SHA384 + P-521 | PASSED | ✅ if accepted; ⚠️ if rejected. Server responds if it supports this combination |
+| 13 | `qscan-quicv1-tls-aes-256-gcm-sha384-mlkem768` | → | QUIC scan: QUICv1 + TLS_AES_256_GCM_SHA384 + MLKEM768 | DROPPED | ✅ if rejected; ❌ if accepted. Must reject QUIC compatibility scanning |
+| 14 | `qscan-quicv1-tls-aes-256-gcm-sha384-mlkem1024` | → | QUIC scan: QUICv1 + TLS_AES_256_GCM_SHA384 + MLKEM1024 | DROPPED | ✅ if rejected; ❌ if accepted. Must reject QUIC compatibility scanning |
+| 15 | `qscan-quicv1-tls-aes-256-gcm-sha384-x25519-mlkem768` | → | QUIC scan: QUICv1 + TLS_AES_256_GCM_SHA384 + X25519_MLKEM768 | DROPPED | ✅ if rejected; ❌ if accepted. Must reject QUIC compatibility scanning |
+| 16 | `qscan-quicv1-tls-aes-256-gcm-sha384-p256-mlkem768` | → | QUIC scan: QUICv1 + TLS_AES_256_GCM_SHA384 + P256_MLKEM768 | DROPPED | ✅ if rejected; ❌ if accepted. Must reject QUIC compatibility scanning |
+| 17 | `qscan-quicv1-tls-chacha20-poly1305-sha256-x25519` | → | QUIC scan: QUICv1 + TLS_CHACHA20_POLY1305_SHA256 + X25519 | PASSED | ✅ if accepted; ⚠️ if rejected. Server responds if it supports this combination |
+| 18 | `qscan-quicv1-tls-chacha20-poly1305-sha256-p-256` | → | QUIC scan: QUICv1 + TLS_CHACHA20_POLY1305_SHA256 + P-256 | PASSED | ✅ if accepted; ⚠️ if rejected. Server responds if it supports this combination |
+| 19 | `qscan-quicv1-tls-chacha20-poly1305-sha256-p-384` | → | QUIC scan: QUICv1 + TLS_CHACHA20_POLY1305_SHA256 + P-384 | PASSED | ✅ if accepted; ⚠️ if rejected. Server responds if it supports this combination |
+| 20 | `qscan-quicv1-tls-chacha20-poly1305-sha256-p-521` | → | QUIC scan: QUICv1 + TLS_CHACHA20_POLY1305_SHA256 + P-521 | PASSED | ✅ if accepted; ⚠️ if rejected. Server responds if it supports this combination |
+| 21 | `qscan-quicv1-tls-chacha20-poly1305-sha256-mlkem768` | → | QUIC scan: QUICv1 + TLS_CHACHA20_POLY1305_SHA256 + MLKEM768 | DROPPED | ✅ if rejected; ❌ if accepted. Must reject QUIC compatibility scanning |
+| 22 | `qscan-quicv1-tls-chacha20-poly1305-sha256-mlkem1024` | → | QUIC scan: QUICv1 + TLS_CHACHA20_POLY1305_SHA256 + MLKEM1024 | DROPPED | ✅ if rejected; ❌ if accepted. Must reject QUIC compatibility scanning |
+| 23 | `qscan-quicv1-tls-chacha20-poly1305-sha256-x25519-mlkem768` | → | QUIC scan: QUICv1 + TLS_CHACHA20_POLY1305_SHA256 + X25519_MLKEM768 | DROPPED | ✅ if rejected; ❌ if accepted. Must reject QUIC compatibility scanning |
+| 24 | `qscan-quicv1-tls-chacha20-poly1305-sha256-p256-mlkem768` | → | QUIC scan: QUICv1 + TLS_CHACHA20_POLY1305_SHA256 + P256_MLKEM768 | DROPPED | ✅ if rejected; ❌ if accepted. Must reject QUIC compatibility scanning |
+| 25 | `qscan-alpn-h3` | → | QUIC scan: ALPN h3 support | PASSED | ✅ if accepted; ⚠️ if rejected. Server responds if it supports this combination |
+| 26 | `qscan-alpn-h3-29` | → | QUIC scan: ALPN h3-29 support | PASSED | ✅ if accepted; ⚠️ if rejected. Server responds if it supports this combination |
+| 27 | `qscan-alpn-h3-32` | → | QUIC scan: ALPN h3-32 support | PASSED | ✅ if accepted; ⚠️ if rejected. Server responds if it supports this combination |
+| 28 | `qscan-version-negotiation` | → | QUIC scan: Version Negotiation probe — sends unknown version to discover supported versions | PASSED | ✅ if accepted; ⚠️ if rejected. Server should respond with Version Negotiation listing supported versions |
+| 29 | `qscan-grease-extensions` | → | QUIC scan: GREASE (RFC 8701) tolerance — sends random unknown extensions | PASSED | ✅ if accepted; ⚠️ if rejected. Server responds if it supports this combination |
+| 30 | `qscan-sigalg-ecdsa-p256` | → | QUIC scan: Signature Algorithm ecdsa-p256 support | PASSED | ✅ if accepted; ⚠️ if rejected. Server responds if it supports this combination |
+| 31 | `qscan-sigalg-rsa-pss-sha256` | → | QUIC scan: Signature Algorithm rsa-pss-sha256 support | PASSED | ✅ if accepted; ⚠️ if rejected. Server responds if it supports this combination |
+| 32 | `qscan-sigalg-ed25519` | → | QUIC scan: Signature Algorithm ed25519 support | PASSED | ✅ if accepted; ⚠️ if rejected. Server responds if it supports this combination |
 
 ---
 
@@ -2450,4 +2444,4 @@ Each test sends crafted protocol data and checks the target's response:
 
 ---
 
-*Generated from scenario definitions on 2026-04-11. 1908 scenarios across 6 protocols.*
+*Generated from scenario definitions on 2026-04-11. 1902 scenarios across 6 protocols.*

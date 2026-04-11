@@ -47,7 +47,7 @@
 <body>
   <div class="container">
     <h1>Test Scenario Reference</h1>
-<p>Complete catalog of all fuzzer test scenarios across <strong>1908 tests</strong> in <strong>6 protocols</strong>.</p>
+<p>Complete catalog of all fuzzer test scenarios across <strong>1902 tests</strong> in <strong>6 protocols</strong>.</p>
 <h2 id="how-to-read-this-document">How to Read This Document</h2>
 <p>Each test sends crafted protocol data and checks the target's response:</p>
 <table>
@@ -158,9 +158,9 @@
 <li><a href="#pan-pan-os-url-category-sni-probes">PAN: PAN-OS URL Category SNI Probes (270)</a></li>
 </ul>
 </li>
-<li><a href="#quic-scan-scenarios"><strong>QUIC Scan</strong> (38 tests)</a>
+<li><a href="#quic-scan-scenarios"><strong>QUIC Scan</strong> (32 tests)</a>
 <ul>
-<li><a href="#qscan-quic-compatibility-scanning-non-fuzzing">QSCAN: QUIC Compatibility Scanning (Non-fuzzing) (38)</a></li>
+<li><a href="#qscan-quic-compatibility-scanning-non-fuzzing">QSCAN: QUIC Compatibility Scanning (Non-fuzzing) (32)</a></li>
 </ul>
 </li>
 <li><a href="#raw-tcp-scenarios"><strong>Raw TCP</strong> (53 tests)</a>
@@ -15540,7 +15540,7 @@
 <hr>
 <h2 id="quic-scan-scenarios">QUIC Scan Scenarios</h2>
 <h3 id="qscan-quic-compatibility-scanning-non-fuzzing">QSCAN: QUIC Compatibility Scanning (Non-fuzzing)</h3>
-<blockquote><p>⚪ info · 38 tests · 38 Client → Server</p></blockquote>
+<blockquote><p>⚪ info · 32 tests · 32 Client → Server</p></blockquote>
 <table>
 <thead>
 <tr>
@@ -15619,22 +15619,6 @@
 </tr>
 <tr>
 <td>9</td>
-<td><code>qscan-quicv1-tls-aes-128-gcm-sha256-x25519-frodokem-640-shake</code></td>
-<td>→</td>
-<td>QUIC scan: QUICv1 + TLS_AES_128_GCM_SHA256 + X25519_FRODOKEM_640_SHAKE</td>
-<td><span class="expected-dropped">DROPPED</span></td>
-<td>✅ if rejected; ❌ if accepted. Must reject QUIC compatibility scanning</td>
-</tr>
-<tr>
-<td>10</td>
-<td><code>qscan-quicv1-tls-aes-128-gcm-sha256-x25519-classic-mceliece-348864</code></td>
-<td>→</td>
-<td>QUIC scan: QUICv1 + TLS_AES_128_GCM_SHA256 + X25519_CLASSIC_MCELIECE_348864</td>
-<td><span class="expected-dropped">DROPPED</span></td>
-<td>✅ if rejected; ❌ if accepted. Must reject QUIC compatibility scanning</td>
-</tr>
-<tr>
-<td>11</td>
 <td><code>qscan-quicv1-tls-aes-256-gcm-sha384-x25519</code></td>
 <td>→</td>
 <td>QUIC scan: QUICv1 + TLS_AES_256_GCM_SHA384 + X25519</td>
@@ -15642,7 +15626,7 @@
 <td>✅ if accepted; ⚠️ if rejected. Server responds if it supports this combination</td>
 </tr>
 <tr>
-<td>12</td>
+<td>10</td>
 <td><code>qscan-quicv1-tls-aes-256-gcm-sha384-p-256</code></td>
 <td>→</td>
 <td>QUIC scan: QUICv1 + TLS_AES_256_GCM_SHA384 + P-256</td>
@@ -15650,7 +15634,7 @@
 <td>✅ if accepted; ⚠️ if rejected. Server responds if it supports this combination</td>
 </tr>
 <tr>
-<td>13</td>
+<td>11</td>
 <td><code>qscan-quicv1-tls-aes-256-gcm-sha384-p-384</code></td>
 <td>→</td>
 <td>QUIC scan: QUICv1 + TLS_AES_256_GCM_SHA384 + P-384</td>
@@ -15658,7 +15642,7 @@
 <td>✅ if accepted; ⚠️ if rejected. Server responds if it supports this combination</td>
 </tr>
 <tr>
-<td>14</td>
+<td>12</td>
 <td><code>qscan-quicv1-tls-aes-256-gcm-sha384-p-521</code></td>
 <td>→</td>
 <td>QUIC scan: QUICv1 + TLS_AES_256_GCM_SHA384 + P-521</td>
@@ -15666,7 +15650,7 @@
 <td>✅ if accepted; ⚠️ if rejected. Server responds if it supports this combination</td>
 </tr>
 <tr>
-<td>15</td>
+<td>13</td>
 <td><code>qscan-quicv1-tls-aes-256-gcm-sha384-mlkem768</code></td>
 <td>→</td>
 <td>QUIC scan: QUICv1 + TLS_AES_256_GCM_SHA384 + MLKEM768</td>
@@ -15674,7 +15658,7 @@
 <td>✅ if rejected; ❌ if accepted. Must reject QUIC compatibility scanning</td>
 </tr>
 <tr>
-<td>16</td>
+<td>14</td>
 <td><code>qscan-quicv1-tls-aes-256-gcm-sha384-mlkem1024</code></td>
 <td>→</td>
 <td>QUIC scan: QUICv1 + TLS_AES_256_GCM_SHA384 + MLKEM1024</td>
@@ -15682,7 +15666,7 @@
 <td>✅ if rejected; ❌ if accepted. Must reject QUIC compatibility scanning</td>
 </tr>
 <tr>
-<td>17</td>
+<td>15</td>
 <td><code>qscan-quicv1-tls-aes-256-gcm-sha384-x25519-mlkem768</code></td>
 <td>→</td>
 <td>QUIC scan: QUICv1 + TLS_AES_256_GCM_SHA384 + X25519_MLKEM768</td>
@@ -15690,7 +15674,7 @@
 <td>✅ if rejected; ❌ if accepted. Must reject QUIC compatibility scanning</td>
 </tr>
 <tr>
-<td>18</td>
+<td>16</td>
 <td><code>qscan-quicv1-tls-aes-256-gcm-sha384-p256-mlkem768</code></td>
 <td>→</td>
 <td>QUIC scan: QUICv1 + TLS_AES_256_GCM_SHA384 + P256_MLKEM768</td>
@@ -15698,23 +15682,7 @@
 <td>✅ if rejected; ❌ if accepted. Must reject QUIC compatibility scanning</td>
 </tr>
 <tr>
-<td>19</td>
-<td><code>qscan-quicv1-tls-aes-256-gcm-sha384-x25519-frodokem-640-shake</code></td>
-<td>→</td>
-<td>QUIC scan: QUICv1 + TLS_AES_256_GCM_SHA384 + X25519_FRODOKEM_640_SHAKE</td>
-<td><span class="expected-dropped">DROPPED</span></td>
-<td>✅ if rejected; ❌ if accepted. Must reject QUIC compatibility scanning</td>
-</tr>
-<tr>
-<td>20</td>
-<td><code>qscan-quicv1-tls-aes-256-gcm-sha384-x25519-classic-mceliece-348864</code></td>
-<td>→</td>
-<td>QUIC scan: QUICv1 + TLS_AES_256_GCM_SHA384 + X25519_CLASSIC_MCELIECE_348864</td>
-<td><span class="expected-dropped">DROPPED</span></td>
-<td>✅ if rejected; ❌ if accepted. Must reject QUIC compatibility scanning</td>
-</tr>
-<tr>
-<td>21</td>
+<td>17</td>
 <td><code>qscan-quicv1-tls-chacha20-poly1305-sha256-x25519</code></td>
 <td>→</td>
 <td>QUIC scan: QUICv1 + TLS_CHACHA20_POLY1305_SHA256 + X25519</td>
@@ -15722,7 +15690,7 @@
 <td>✅ if accepted; ⚠️ if rejected. Server responds if it supports this combination</td>
 </tr>
 <tr>
-<td>22</td>
+<td>18</td>
 <td><code>qscan-quicv1-tls-chacha20-poly1305-sha256-p-256</code></td>
 <td>→</td>
 <td>QUIC scan: QUICv1 + TLS_CHACHA20_POLY1305_SHA256 + P-256</td>
@@ -15730,7 +15698,7 @@
 <td>✅ if accepted; ⚠️ if rejected. Server responds if it supports this combination</td>
 </tr>
 <tr>
-<td>23</td>
+<td>19</td>
 <td><code>qscan-quicv1-tls-chacha20-poly1305-sha256-p-384</code></td>
 <td>→</td>
 <td>QUIC scan: QUICv1 + TLS_CHACHA20_POLY1305_SHA256 + P-384</td>
@@ -15738,7 +15706,7 @@
 <td>✅ if accepted; ⚠️ if rejected. Server responds if it supports this combination</td>
 </tr>
 <tr>
-<td>24</td>
+<td>20</td>
 <td><code>qscan-quicv1-tls-chacha20-poly1305-sha256-p-521</code></td>
 <td>→</td>
 <td>QUIC scan: QUICv1 + TLS_CHACHA20_POLY1305_SHA256 + P-521</td>
@@ -15746,7 +15714,7 @@
 <td>✅ if accepted; ⚠️ if rejected. Server responds if it supports this combination</td>
 </tr>
 <tr>
-<td>25</td>
+<td>21</td>
 <td><code>qscan-quicv1-tls-chacha20-poly1305-sha256-mlkem768</code></td>
 <td>→</td>
 <td>QUIC scan: QUICv1 + TLS_CHACHA20_POLY1305_SHA256 + MLKEM768</td>
@@ -15754,7 +15722,7 @@
 <td>✅ if rejected; ❌ if accepted. Must reject QUIC compatibility scanning</td>
 </tr>
 <tr>
-<td>26</td>
+<td>22</td>
 <td><code>qscan-quicv1-tls-chacha20-poly1305-sha256-mlkem1024</code></td>
 <td>→</td>
 <td>QUIC scan: QUICv1 + TLS_CHACHA20_POLY1305_SHA256 + MLKEM1024</td>
@@ -15762,7 +15730,7 @@
 <td>✅ if rejected; ❌ if accepted. Must reject QUIC compatibility scanning</td>
 </tr>
 <tr>
-<td>27</td>
+<td>23</td>
 <td><code>qscan-quicv1-tls-chacha20-poly1305-sha256-x25519-mlkem768</code></td>
 <td>→</td>
 <td>QUIC scan: QUICv1 + TLS_CHACHA20_POLY1305_SHA256 + X25519_MLKEM768</td>
@@ -15770,7 +15738,7 @@
 <td>✅ if rejected; ❌ if accepted. Must reject QUIC compatibility scanning</td>
 </tr>
 <tr>
-<td>28</td>
+<td>24</td>
 <td><code>qscan-quicv1-tls-chacha20-poly1305-sha256-p256-mlkem768</code></td>
 <td>→</td>
 <td>QUIC scan: QUICv1 + TLS_CHACHA20_POLY1305_SHA256 + P256_MLKEM768</td>
@@ -15778,23 +15746,7 @@
 <td>✅ if rejected; ❌ if accepted. Must reject QUIC compatibility scanning</td>
 </tr>
 <tr>
-<td>29</td>
-<td><code>qscan-quicv1-tls-chacha20-poly1305-sha256-x25519-frodokem-640-shake</code></td>
-<td>→</td>
-<td>QUIC scan: QUICv1 + TLS_CHACHA20_POLY1305_SHA256 + X25519_FRODOKEM_640_SHAKE</td>
-<td><span class="expected-dropped">DROPPED</span></td>
-<td>✅ if rejected; ❌ if accepted. Must reject QUIC compatibility scanning</td>
-</tr>
-<tr>
-<td>30</td>
-<td><code>qscan-quicv1-tls-chacha20-poly1305-sha256-x25519-classic-mceliece-348864</code></td>
-<td>→</td>
-<td>QUIC scan: QUICv1 + TLS_CHACHA20_POLY1305_SHA256 + X25519_CLASSIC_MCELIECE_348864</td>
-<td><span class="expected-dropped">DROPPED</span></td>
-<td>✅ if rejected; ❌ if accepted. Must reject QUIC compatibility scanning</td>
-</tr>
-<tr>
-<td>31</td>
+<td>25</td>
 <td><code>qscan-alpn-h3</code></td>
 <td>→</td>
 <td>QUIC scan: ALPN h3 support</td>
@@ -15802,7 +15754,7 @@
 <td>✅ if accepted; ⚠️ if rejected. Server responds if it supports this combination</td>
 </tr>
 <tr>
-<td>32</td>
+<td>26</td>
 <td><code>qscan-alpn-h3-29</code></td>
 <td>→</td>
 <td>QUIC scan: ALPN h3-29 support</td>
@@ -15810,7 +15762,7 @@
 <td>✅ if accepted; ⚠️ if rejected. Server responds if it supports this combination</td>
 </tr>
 <tr>
-<td>33</td>
+<td>27</td>
 <td><code>qscan-alpn-h3-32</code></td>
 <td>→</td>
 <td>QUIC scan: ALPN h3-32 support</td>
@@ -15818,7 +15770,7 @@
 <td>✅ if accepted; ⚠️ if rejected. Server responds if it supports this combination</td>
 </tr>
 <tr>
-<td>34</td>
+<td>28</td>
 <td><code>qscan-version-negotiation</code></td>
 <td>→</td>
 <td>QUIC scan: Version Negotiation probe &mdash; sends unknown version to discover supported versions</td>
@@ -15826,7 +15778,7 @@
 <td>✅ if accepted; ⚠️ if rejected. Server should respond with Version Negotiation listing supported versions</td>
 </tr>
 <tr>
-<td>35</td>
+<td>29</td>
 <td><code>qscan-grease-extensions</code></td>
 <td>→</td>
 <td>QUIC scan: GREASE (RFC 8701) tolerance &mdash; sends random unknown extensions</td>
@@ -15834,7 +15786,7 @@
 <td>✅ if accepted; ⚠️ if rejected. Server responds if it supports this combination</td>
 </tr>
 <tr>
-<td>36</td>
+<td>30</td>
 <td><code>qscan-sigalg-ecdsa-p256</code></td>
 <td>→</td>
 <td>QUIC scan: Signature Algorithm ecdsa-p256 support</td>
@@ -15842,7 +15794,7 @@
 <td>✅ if accepted; ⚠️ if rejected. Server responds if it supports this combination</td>
 </tr>
 <tr>
-<td>37</td>
+<td>31</td>
 <td><code>qscan-sigalg-rsa-pss-sha256</code></td>
 <td>→</td>
 <td>QUIC scan: Signature Algorithm rsa-pss-sha256 support</td>
@@ -15850,7 +15802,7 @@
 <td>✅ if accepted; ⚠️ if rejected. Server responds if it supports this combination</td>
 </tr>
 <tr>
-<td>38</td>
+<td>32</td>
 <td><code>qscan-sigalg-ed25519</code></td>
 <td>→</td>
 <td>QUIC scan: Signature Algorithm ed25519 support</td>
@@ -16435,7 +16387,7 @@
 </tbody>
 </table>
 <hr>
-<p><em>Generated from scenario definitions on 2026-04-11. 1908 scenarios across 6 protocols.</em></p>
+<p><em>Generated from scenario definitions on 2026-04-11. 1902 scenarios across 6 protocols.</em></p>
   </div>
 </body>
 </html>
