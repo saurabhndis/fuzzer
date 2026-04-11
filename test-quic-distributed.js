@@ -2,8 +2,7 @@
 // Test QUIC scenarios in distributed mode with 1 worker.
 // Batch 1: Key categories (QZ well-behaved, QM virus, QN sandbox) — full coverage
 // Batch 2: Core fuzzing (QA-QF native QUIC) — full coverage
-// Batch 3: Adapted TLS (QG-QK) — sample of 50 to keep runtime reasonable
-// Batch 4: PAN/QO/QSCAN — sample of 30
+// Batch 3: PAN/QO/QSCAN — full coverage
 
 const http = require('http');
 const { startAgent } = require('./lib/agent');
@@ -110,23 +109,12 @@ async function run() {
     allResults.push(...r2);
     console.log(`  Done: ${r2.length} results`);
 
-    // ── Batch 3: Adapted TLS (QG-QK) — full coverage, per-category ──
-    const adaptedCats = ['QG','QH','QJ','QK'];
-    for (const cat of adaptedCats) {
-      const catNames = byCategory[cat] || [];
-      if (catNames.length === 0) continue;
-      console.log(`\n── BATCH 3/${cat}: Adapted TLS category ${cat} (${catNames.length} scenarios) ──`);
-      const r = await runBatch(AGENT_PORT, actualPort, catNames);
-      allResults.push(...r);
-      console.log(`  Done: ${r.length} results`);
-    }
-
-    // ── Batch 4: PAN/QO/QSCAN — full coverage, per-category ──
+    // ── Batch 3: PAN/QO/QSCAN — full coverage, per-category ──
     const scanCats = ['PAN','QO','QSCAN'];
     for (const cat of scanCats) {
       const catNames = byCategory[cat] || [];
       if (catNames.length === 0) continue;
-      console.log(`\n── BATCH 4/${cat}: Scan/probe category ${cat} (${catNames.length} scenarios) ──`);
+      console.log(`\n── BATCH 3/${cat}: Scan/probe category ${cat} (${catNames.length} scenarios) ──`);
       const r = await runBatch(AGENT_PORT, actualPort, catNames);
       allResults.push(...r);
       console.log(`  Done: ${r.length} results`);

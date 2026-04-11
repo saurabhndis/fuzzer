@@ -79,11 +79,6 @@ const SEVERITY_REASONS = {
   QD:  'QUIC flow control & stream errors',
   QE:  'QUIC connection migration & path attacks',
   QF:  'QUIC frame structure & mutation',
-  QG:  'QUIC-TLS handshake order & state violations',
-  QH:  'QUIC-TLS parameter & extension fuzzing',
-  QI:  'QUIC-TLS record & alert injection',
-  QJ:  'QUIC-TLS known CVEs & PQC attacks',
-  QK:  'QUIC-TLS certificate fuzzing',
   QL:  'QUIC server-to-client attacks',
   QS:  'QUIC server-side fuzzing',
   QSCAN: 'QUIC compatibility scanning',
@@ -236,7 +231,6 @@ function buildProtocolSections() {
   // QUIC category order
   const quicCategoryOrder = [
     'QA', 'QB', 'QC', 'QD', 'QE', 'QF',
-    'QG', 'QH', 'QI', 'QJ', 'QK',
     'QL', 'QS', 'PAN',
   ];
 
