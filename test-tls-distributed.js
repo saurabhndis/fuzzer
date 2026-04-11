@@ -252,7 +252,12 @@ async function run() {
 
   // ── Coverage selection ────────────────────────────────────────────────
   let selectedCats = Object.keys(byCategory).sort();
-  if (ARGS.category) selectedCats = selectedCats.filter(c => ARGS.category.includes(c));
+  if (ARGS.category) {
+    selectedCats = selectedCats.filter(c => ARGS.category.includes(c));
+  } else {
+    // Exclude APP scenarios by default as they require custom application-layer servers
+    selectedCats = selectedCats.filter(c => c !== 'APP');
+  }
 
   let selection = selectedCats.flatMap(c => byCategory[c].map(name => ({ name, category: c })));
   if (ARGS.only) selection = selection.filter(s => s.name === ARGS.only);
