@@ -9,8 +9,6 @@
   const portInput = document.getElementById('portInput');
   const delayInput = document.getElementById('delayInput');
   const timeoutInput = document.getElementById('timeoutInput');
-  const workersInput = document.getElementById('workersInput');
-  workersInput.value = window.fuzzer.cpuCount || 4;
   const verboseCheck = document.getElementById('verboseCheck');
   const scenariosList = document.getElementById('scenariosList');
   const runBtn = document.getElementById('runBtn');
@@ -315,7 +313,7 @@
           const port = parseInt(portInput.value, 10) || 443;
           const delay = parseInt(delayInput.value, 10) || 100;
           const timeout = parseInt(timeoutInput.value, 10) || 5000;
-          const workers = parseInt(workersInput.value, 10) || 1;
+          const workers = 1;
 
           // Simple split by side
           const clientScenarios = [];
@@ -402,18 +400,6 @@
     }
   }
 
-  function updateWorkerConstraints() {
-    const protocol = activeProtocol;
-    if (protocol === 'tls' || protocol === 'h2' || protocol === 'quic') {
-      workersInput.disabled = true;
-      workersInput.title = `${protocol.toUpperCase()} is currently limited to 1 worker (concurrency support coming later).`;
-      workersInput.value = 1;
-    } else {
-      workersInput.disabled = false;
-      workersInput.title = "";
-    }
-  }
-
   // Protocol tab switching
   tlsTabBtn.addEventListener('click', () => {
     if (activeProtocol === 'tls') return;
@@ -422,7 +408,7 @@
     http2TabBtn.classList.remove('active');
     quicTabBtn.classList.remove('active');
     tcpTabBtn.classList.remove('active');
-    updateWorkerConstraints();
+
     filterScenariosBySide();
   });
 
@@ -433,7 +419,7 @@
     tlsTabBtn.classList.remove('active');
     quicTabBtn.classList.remove('active');
     tcpTabBtn.classList.remove('active');
-    updateWorkerConstraints();
+
     filterScenariosBySide();
   });
 
@@ -444,7 +430,7 @@
     tlsTabBtn.classList.remove('active');
     http2TabBtn.classList.remove('active');
     tcpTabBtn.classList.remove('active');
-    updateWorkerConstraints();
+
     filterScenariosBySide();
   });
 
@@ -455,7 +441,7 @@
     tlsTabBtn.classList.remove('active');
     http2TabBtn.classList.remove('active');
     quicTabBtn.classList.remove('active');
-    updateWorkerConstraints();
+
     filterScenariosBySide();
   });
 
@@ -1359,16 +1345,7 @@
       }
     }
 
-    let workers = parseInt(workersInput.value, 10) || 1;
-    const maxWorkers = window.fuzzer.cpuCount || 10;
-    if (workers > maxWorkers) {
-      workers = maxWorkers;
-      workersInput.value = maxWorkers;
-    }
-    if (workers < 1) {
-      workers = 1;
-      workersInput.value = 1;
-    }
+    const workers = 1;
 
     const scenarioNames = customScenario ? [] : getSelectedScenarios();
     const loopCount = Math.max(1, Math.min(1000, parseInt(loopCountInput.value, 10) || 1));
@@ -1592,7 +1569,7 @@
       window.fuzzer.openFirewall(dut);
     }
 
-    const workers = parseInt(workersInput.value, 10) || 1;
+    const workers = 1;
 
     // Configure agents
     addLogEntry('info', `Configuring agents: ${clientScenarios.length} client, ${serverScenarios.length} server${pcapScenarios.length ? `, ${pcapScenarios.length} PCAP` : ''} scenarios`);

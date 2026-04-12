@@ -214,8 +214,8 @@ ipcMain.handle('list-scenarios', () => {
 ipcMain.handle('run-fuzzer', async (event, opts) => {
   const { mode, host, port, scenarioNames, delay, timeout, pcapFile, verbose, hostname, protocol, dut, loopCount: rawLoop, localMode, baseline, workers: rawWorkers } = opts;
   const loopCount = Math.max(1, Math.min(1000, parseInt(rawLoop, 10) || 1));
-  // Custom/PCAP scenarios can't be dispatched to worker processes
-  const workers = opts.scenario ? 1 : (rawWorkers || 1);
+  // Use a single worker for all operations to ensure reliable synchronization.
+  const workers = 1;
 
   const send = (channel, data) => {
     if (mainWindow && !mainWindow.isDestroyed()) {
