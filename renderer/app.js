@@ -211,6 +211,11 @@
   distributedCheck.addEventListener('change', () => {
     distributedMode = distributedCheck.checked;
     distributedBar.style.display = distributedMode ? 'flex' : 'none';
+    if (!distributedMode) {
+      // Hide deploy bar when leaving distributed mode
+      autoDeployCheck.checked = false;
+      deployBar.style.display = 'none';
+    }
     if (distributedMode) {
       // In distributed mode, show all scenarios (both sides)
       modeSelect.disabled = true;
@@ -253,6 +258,158 @@
       apiKey: dutApiKeyInput.value.trim(),
     };
     window.fuzzer.openFirewall(dut);
+  });
+
+  // --- SSH Auto-Deploy (Beta) ---
+  const autoDeployCheck = document.getElementById('autoDeployCheck');
+  const deployBar = document.getElementById('deployBar');
+  const clientSshHost = document.getElementById('clientSshHost');
+  const clientSshUser = document.getElementById('clientSshUser');
+  const clientSshPass = document.getElementById('clientSshPass');
+  const clientKeyBtn = document.getElementById('clientKeyBtn');
+  const clientKeyLabel = document.getElementById('clientKeyLabel');
+  const serverSshHost = document.getElementById('serverSshHost');
+  const serverSshUser = document.getElementById('serverSshUser');
+  const serverSshPass = document.getElementById('serverSshPass');
+  const serverKeyBtn = document.getElementById('serverKeyBtn');
+  const serverKeyLabel = document.getElementById('serverKeyLabel');
+  const deployBtn = document.getElementById('deployBtn');
+  const teardownBtn = document.getElementById('teardownBtn');
+  const deployLog = document.getElementById('deployLog');
+
+  let clientKeyPath = null;
+  let serverKeyPath = null;
+  let deployed = false;
+
+  autoDeployCheck.addEventListener('change', () => {
+    deployBar.style.display = autoDeployCheck.checked ? 'flex' : 'none';
+    // Hide manual connect when auto-deploy is active
+    connectBtn.style.display = autoDeployCheck.checked ? 'none' : '';
+    disconnectBtn.style.display = autoDeployCheck.checked ? 'none' : '';
+    clientAgentIp.disabled = autoDeployCheck.checked;
+    serverAgentIp.disabled = autoDeployCheck.checked;
+  });
+
+  clientKeyBtn.addEventListener('click', async () => {
+    const keyPath = await window.fuzzer.selectSshKey();
+    if (keyPath) {
+      clientKeyPath = keyPath;
+      const name = keyPath.split('/').pop().split('\\').pop();
+      clientKeyLabel.textContent = name;
+      clientKeyBtn.classList.add('key-selected');
+    }
+  });
+
+  serverKeyBtn.addEventListener('click', async () => {
+    const keyPath = await window.fuzzer.selectSshKey();
+    if (keyPath) {
+      serverKeyPath = keyPath;
+      const name = keyPath.split('/').pop().split('\\').pop();
+      serverKeyLabel.textContent = name;
+      serverKeyBtn.classList.add('key-selected');
+    }
+  });
+
+  function appendDeployLog(role, phase, message, type) {
+    const cls = type === 'error' ? 'deploy-error' : type === 'ok' ? 'deploy-ok' : 'deploy-phase';
+    const line = document.createElement('div');
+    line.innerHTML = `<span class="${cls}">[${role}/${phase}]</span> ${message}`;
+    deployLog.appendChild(line);
+    deployLog.scrollTop = deployLog.scrollHeight;
+  }
+
+  // Listen for deploy status events from main process
+  window.fuzzer.onDeployStatus((data) => {
+    const type = data.phase === 'ready' ? 'ok' : data.phase === 'error' ? 'error' : null;
+    appendDeployLog(data.role, data.phase, data.message, type);
+  });
+
+  deployBtn.addEventListener('click', async () => {
+    const cHost = clientSshHost.value.trim();
+    const sHost = serverSshHost.value.trim();
+    if (!cHost && !sHost) {
+      addLogEntry('error', 'Enter at least one SSH host to deploy to');
+      return;
+    }
+
+    deployBtn.disabled = true;
+    teardownBtn.disabled = true;
+    deployLog.innerHTML = '';
+
+    const opts = {};
+    if (cHost) {
+      opts.client = {
+        host: cHost,
+        username: clientSshUser.value.trim() || 'root',
+        password: clientSshPass.value || null,
+        keyPath: clientKeyPath || null,
+      };
+    }
+    if (sHost) {
+      opts.server = {
+        host: sHost,
+        username: serverSshUser.value.trim() || 'root',
+        password: serverSshPass.value || null,
+        keyPath: serverKeyPath || null,
+      };
+    }
+
+    try {
+      const result = await window.fuzzer.distributedDeploy(opts);
+
+      if (result.error) {
+        appendDeployLog('deploy', 'error', result.error, 'error');
+        deployBtn.disabled = false;
+        return;
+      }
+
+      // Handle per-role errors
+      if (result.clientError) appendDeployLog('client', 'error', result.clientError, 'error');
+      if (result.serverError) appendDeployLog('server', 'error', result.serverError, 'error');
+      if (result.clientConnectError) appendDeployLog('client', 'error', `Connect failed: ${result.clientConnectError}`, 'error');
+      if (result.serverConnectError) appendDeployLog('server', 'error', `Connect failed: ${result.serverConnectError}`, 'error');
+
+      // Update agent status dots and IP fields
+      if (result.client && !result.clientConnectError) {
+        clientAgentIp.value = result.client.host;
+        setAgentStatus('client', 'ready');
+        connectedAgents.client = true;
+        appendDeployLog('client', 'done', `Agent connected at ${result.client.host}:${result.client.controlPort}`, 'ok');
+      }
+      if (result.server && !result.serverConnectError) {
+        serverAgentIp.value = result.server.host;
+        setAgentStatus('server', 'ready');
+        connectedAgents.server = true;
+        appendDeployLog('server', 'done', `Agent connected at ${result.server.host}:${result.server.controlPort}`, 'ok');
+      }
+
+      if (connectedAgents.client || connectedAgents.server) {
+        agentsConnected = true;
+        deployed = true;
+        teardownBtn.disabled = false;
+        startStatusPolling();
+      } else {
+        deployBtn.disabled = false;
+      }
+    } catch (err) {
+      appendDeployLog('deploy', 'error', err.message, 'error');
+      deployBtn.disabled = false;
+    }
+  });
+
+  teardownBtn.addEventListener('click', async () => {
+    teardownBtn.disabled = true;
+    try {
+      await window.fuzzer.distributedTeardown();
+    } catch (_) {}
+    deployed = false;
+    agentsConnected = false;
+    connectedAgents = { client: false, server: false };
+    setAgentStatus('client', 'idle');
+    setAgentStatus('server', 'idle');
+    stopStatusPolling();
+    deployBtn.disabled = false;
+    appendDeployLog('teardown', 'done', 'Agents stopped and cleaned up', 'ok');
   });
 
   // Connect to remote agents

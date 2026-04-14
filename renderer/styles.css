@@ -954,6 +954,96 @@ body.dut-active .results-table .fw-col { display: table-cell; }
   color: var(--text-primary);
 }
 
+/* SSH Auto-Deploy Bar */
+.deploy-bar {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+}
+
+.deploy-creds {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.deploy-role {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.deploy-input {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  color: var(--text-primary);
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-family: var(--font-mono);
+}
+
+.deploy-input:focus {
+  border-color: var(--accent);
+}
+
+.btn-key {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  padding: 3px 8px;
+  border-radius: 4px;
+  font-size: 10px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.btn-key:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.btn-key.key-selected {
+  border-color: var(--green);
+  color: var(--green);
+}
+
+.key-label {
+  font-size: 10px;
+  color: var(--green);
+  max-width: 80px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.deploy-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.deploy-log {
+  font-size: 11px;
+  font-family: var(--font-mono);
+  color: var(--text-secondary);
+  max-height: 80px;
+  overflow-y: auto;
+  line-height: 1.4;
+}
+
+.deploy-log .deploy-phase {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.deploy-log .deploy-error {
+  color: var(--red);
+}
+
+.deploy-log .deploy-ok {
+  color: var(--green);
+}
+
 .agent-tag {
   display: inline-block;
   padding: 1px 5px;

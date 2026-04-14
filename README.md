@@ -362,6 +362,42 @@ node server.js <port> --agent --control-port 9101 --token mysecret
 
 The controller pushes configuration to both agents, starts them simultaneously, and streams results back to the GUI in real-time.
 
+#### Auto-Deploy (Beta)
+
+Skip the manual VM setup entirely. The controller can SSH into your client and server machines, install Node.js if needed, deploy the agent bundle, and start the agents automatically.
+
+```
+  Controller (Mac)
+       │
+       ├── SSH ──> Client VM: upload bundle, npm install, start agent
+       │                └─── agent ready on :9200
+       │
+       └── SSH ──> Server VM: upload bundle, npm install, start agent
+                        └─── agent ready on :9201
+       │
+       └── Auto-connect controller to both agents (existing flow)
+```
+
+**GUI:**
+
+1. Check **Distributed** in the toolbar
+2. Click the **🚀 Auto-Deploy** toggle (highlighted with BETA badge)
+3. Enter SSH credentials for each machine (hostname, username, password or SSH key)
+4. Click **DEPLOY & CONNECT**
+
+The deploy log shows real-time progress: SSH connect → OS detection → Node.js check/install → bundle upload → extract → npm install → agent start → ready.
+
+Click **TEARDOWN** to stop remote agents and clean up.
+
+**Requirements:**
+- Controller runs on **macOS** with native OpenSSH (no npm dependencies needed)
+- Password auth requires `sshpass` (`brew install sshpass`) — SSH key auth is recommended
+- Remote machines: Linux (primary) or Windows with OpenSSH
+- Node.js v18+ on remote machines (auto-installed on Linux if missing)
+
+**What gets deployed:**
+A minimal agent-only bundle (~270 KB) containing `lib/*.js`, `client.js`, `server.js`, and a stripped `package.json` — no Electron, no renderer, no test files. Deployed to `~/.wirestrike/` on each remote machine.
+
 **Agent HTTP API:**
 
 | Endpoint | Method | Description |
@@ -711,6 +747,7 @@ Monitor a Palo Alto Networks (PAN-OS) firewall during fuzzing to detect crashes 
 - **PCAP toggle**: Record traffic to file
 - **Local Target**: Self-contained testing without external targets
 - **Distributed**: Remote agent orchestration across VMs
+- **Auto-Deploy (Beta)**: One-click SSH deployment of agents to remote machines
 - **DUT**: Firewall monitoring during tests
 
 ### Scenario Selection Controls
@@ -787,6 +824,8 @@ fuzzer/
     well-behaved-client.js      Compliant client for local mode
     agent.js                    Remote agent HTTP server
     controller.js               Distributed mode orchestrator
+    ssh-deployer.js             SSH auto-deploy for distributed agents
+    agent-bundle.js             Minimal agent tarball builder
     cert-gen.js                 RSA/X.509 certificate generation
     constants.js                TLS protocol constants
     record.js                   TLS record construction

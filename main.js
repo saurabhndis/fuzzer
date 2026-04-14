@@ -1323,7 +1323,138 @@ ipcMain.handle('distributed-disconnect', () => {
     controller.disconnect();
     controller = null;
   }
+  // Teardown any SSH deployers
+  for (const deployer of Object.values(activeDeployers)) {
+    if (deployer) deployer.teardown().catch(() => {});
+  }
+  Object.keys(activeDeployers).forEach(k => delete activeDeployers[k]);
   return { ok: true };
+});
+
+// --- SSH Auto-Deploy (Beta) ---
+
+const activeDeployers = {}; // { client: SSHDeployer, server: SSHDeployer }
+
+ipcMain.handle('distributed-deploy', async (_event, opts) => {
+  const { SSHDeployer } = require('./lib/ssh-deployer');
+  const { buildAgentBundle } = require('./lib/agent-bundle');
+
+  const sendDeploy = (data) => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('distributed-deploy-status', data);
+    }
+  };
+
+  try {
+    // Build agent bundle once
+    sendDeploy({ role: 'bundle', phase: 'build', message: 'Building agent bundle...' });
+    const bundle = await buildAgentBundle();
+    sendDeploy({ role: 'bundle', phase: 'build', message: `Bundle ready (${(bundle.length / 1024).toFixed(0)} KB)` });
+
+    const result = {};
+    const deployPromises = [];
+
+    // Deploy to client machine
+    if (opts.client && opts.client.host) {
+      const clientDeployer = new SSHDeployer({
+        host: opts.client.host,
+        port: opts.client.sshPort || 22,
+        username: opts.client.username,
+        password: opts.client.password || null,
+        privateKeyPath: opts.client.keyPath || null,
+        role: 'client',
+        controlPort: opts.client.controlPort || 9200,
+      });
+      activeDeployers.client = clientDeployer;
+      clientDeployer.on('status', (data) => sendDeploy(data));
+
+      deployPromises.push(
+        clientDeployer.deploy(bundle)
+          .then(info => { result.client = info; })
+          .catch(err => { result.clientError = err.message; })
+      );
+    }
+
+    // Deploy to server machine
+    if (opts.server && opts.server.host) {
+      const serverDeployer = new SSHDeployer({
+        host: opts.server.host,
+        port: opts.server.sshPort || 22,
+        username: opts.server.username,
+        password: opts.server.password || null,
+        privateKeyPath: opts.server.keyPath || null,
+        role: 'server',
+        controlPort: opts.server.controlPort || 9201,
+      });
+      activeDeployers.server = serverDeployer;
+      serverDeployer.on('status', (data) => sendDeploy(data));
+
+      deployPromises.push(
+        serverDeployer.deploy(bundle)
+          .then(info => { result.server = info; })
+          .catch(err => { result.serverError = err.message; })
+      );
+    }
+
+    await Promise.all(deployPromises);
+
+    // Auto-connect the controller to deployed agents
+    if (result.client || result.server) {
+      if (controller) controller.disconnect();
+      controller = new Controller();
+
+      const connectPromises = [];
+      if (result.client) {
+        connectPromises.push(
+          controller.connect('client', result.client.host, result.client.controlPort, result.client.token)
+            .then(status => { result.clientStatus = status; })
+            .catch(err => { result.clientConnectError = err.message; })
+        );
+      }
+      if (result.server) {
+        connectPromises.push(
+          controller.connect('server', result.server.host, result.server.controlPort, result.server.token)
+            .then(status => { result.serverStatus = status; })
+            .catch(err => { result.serverConnectError = err.message; })
+        );
+      }
+      await Promise.all(connectPromises);
+    }
+
+    return result;
+  } catch (err) {
+    return { error: err.message };
+  }
+});
+
+ipcMain.handle('distributed-teardown', async () => {
+  const promises = [];
+  for (const [role, deployer] of Object.entries(activeDeployers)) {
+    if (deployer) {
+      promises.push(deployer.teardown().catch(() => {}));
+    }
+  }
+  await Promise.all(promises);
+  Object.keys(activeDeployers).forEach(k => delete activeDeployers[k]);
+
+  if (controller) {
+    controller.disconnect();
+    controller = null;
+  }
+  return { ok: true };
+});
+
+ipcMain.handle('select-ssh-key', async () => {
+  const result = await dialog.showOpenDialog(mainWindow, {
+    title: 'Select SSH Private Key',
+    properties: ['openFile'],
+    filters: [
+      { name: 'SSH Keys', extensions: ['pem', 'key', 'ppk', ''] },
+      { name: 'All Files', extensions: ['*'] },
+    ],
+  });
+  if (result.canceled || result.filePaths.length === 0) return null;
+  return result.filePaths[0];
 });
 
 // ═══════════════════════════════════════════════════════════════════════════════

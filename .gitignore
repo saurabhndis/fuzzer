@@ -7,3 +7,4 @@ node_modules/
 test-output/
 pcap-tests/*.json
 .DS_Store
+tls-verify-results.json

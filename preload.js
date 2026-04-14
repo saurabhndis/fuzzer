@@ -57,6 +57,16 @@ contextBridge.exposeInMainWorld('fuzzer', {
     return () => ipcRenderer.removeListener('distributed-agent-status', listener);
   },
 
+  // SSH Auto-Deploy (Beta)
+  distributedDeploy: (opts) => ipcRenderer.invoke('distributed-deploy', opts),
+  distributedTeardown: () => ipcRenderer.invoke('distributed-teardown'),
+  selectSshKey: () => ipcRenderer.invoke('select-ssh-key'),
+  onDeployStatus: (cb) => {
+    const listener = (_e, data) => cb(data);
+    ipcRenderer.on('distributed-deploy-status', listener);
+    return () => ipcRenderer.removeListener('distributed-deploy-status', listener);
+  },
+
   // Firewall monitor
   openFirewall: (dutConfig) => ipcRenderer.invoke('open-firewall', dutConfig),
   closeFirewall: () => ipcRenderer.invoke('close-firewall'),

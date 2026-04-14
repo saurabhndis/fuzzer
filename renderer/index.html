@@ -83,6 +83,40 @@
         <button id="connectBtn" class="btn btn-connect">CONNECT</button>
         <button id="disconnectBtn" class="btn btn-disconnect" disabled>DISCONNECT</button>
       </div>
+      <div style="margin-left:auto;">
+        <label class="checkbox-label auto-deploy-label" style="font-size:11px; position:relative; cursor:pointer;">
+          <input type="checkbox" id="autoDeployCheck">
+          <span style="background:linear-gradient(135deg, #6366f1, #8b5cf6); color:#fff; font-weight:600; padding:4px 12px; border-radius:8px; font-size:11px; letter-spacing:0.3px;">🚀 Auto-Deploy</span>
+          <span style="position:absolute; top:-10px; right:-14px; background:linear-gradient(135deg, #f59e0b, #ef4444); color:#fff; font-size:9px; font-weight:700; padding:2px 6px; border-radius:10px; letter-spacing:0.5px; box-shadow:0 2px 6px rgba(239,68,68,0.3);">BETA</span>
+        </label>
+      </div>
+    </div>
+
+    <!-- SSH Auto-Deploy Bar -->
+    <div class="distributed-bar deploy-bar" id="deployBar" style="display:none;">
+      <div class="deploy-creds">
+        <div class="deploy-role">
+          <span class="agent-label" style="min-width:50px;">Client</span>
+          <input type="text" id="clientSshHost" class="agent-ip-input" placeholder="hostname / IP">
+          <input type="text" id="clientSshUser" class="deploy-input" placeholder="user" value="root" style="width:70px;">
+          <input type="password" id="clientSshPass" class="deploy-input" placeholder="password" style="width:100px;">
+          <button id="clientKeyBtn" class="btn-key" title="Select SSH key file">Key</button>
+          <span id="clientKeyLabel" class="key-label"></span>
+        </div>
+        <div class="deploy-role">
+          <span class="agent-label" style="min-width:50px;">Server</span>
+          <input type="text" id="serverSshHost" class="agent-ip-input" placeholder="hostname / IP">
+          <input type="text" id="serverSshUser" class="deploy-input" placeholder="user" value="root" style="width:70px;">
+          <input type="password" id="serverSshPass" class="deploy-input" placeholder="password" style="width:100px;">
+          <button id="serverKeyBtn" class="btn-key" title="Select SSH key file">Key</button>
+          <span id="serverKeyLabel" class="key-label"></span>
+        </div>
+      </div>
+      <div class="deploy-actions">
+        <button id="deployBtn" class="btn btn-connect">DEPLOY & CONNECT</button>
+        <button id="teardownBtn" class="btn btn-disconnect" disabled>TEARDOWN</button>
+      </div>
+      <div id="deployLog" class="deploy-log"></div>
     </div>
 
     <!-- DUT Configuration Bar -->
