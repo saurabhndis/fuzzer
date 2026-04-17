@@ -51,6 +51,19 @@ function formatHex(hex) {
   return out;
 }
 
+// Prevent crash on EPIPE (e.g. when piping to head)
+process.stdout.on('error', (err) => {
+  if (err.code === 'EPIPE') process.exit(0);
+});
+
+function safeWrite(msg) {
+  try {
+    process.stdout.write(msg);
+  } catch (err) {
+    if (err.code !== 'EPIPE') throw err;
+  }
+}
+
 function startLogCollector(port) {
   http.get({ hostname: 'localhost', port, path: '/events' }, (res) => {
     res.on('data', (chunk) => {
@@ -63,30 +76,30 @@ function startLogCollector(port) {
             const e = event.event;
             const scenarioTag = e.scenario ? ` [${e.scenario}]` : '';
             if (e.type === 'scenario') {
-              process.stdout.write(`\n━━━ Scenario: ${e.name} ━━━\n    ${e.description}\n`);
+              safeWrite(`\n━━━ Scenario: ${e.name} ━━━\n    ${e.description}\n`);
               logStream.write(`\n━━━ Scenario: ${e.name} ━━━\n    ${e.description}\n`);
             } else if (e.type === 'sent') {
-              process.stdout.write(`${e.ts}${scenarioTag} → ${e.label} (${e.size} bytes)\n`);
+              safeWrite(`${e.ts}${scenarioTag} → ${e.label} (${e.size} bytes)\n`);
               logStream.write(`${e.ts}${scenarioTag} → ${e.label} (${e.size} bytes)\n`);
               if (e.hex) logStream.write(formatHex(e.hex));
             } else if (e.type === 'received') {
-              process.stdout.write(`${e.ts}${scenarioTag} ← ${e.label} (${e.size} bytes)\n`);
+              safeWrite(`${e.ts}${scenarioTag} ← ${e.label} (${e.size} bytes)\n`);
               logStream.write(`${e.ts}${scenarioTag} ← ${e.label} (${e.size} bytes)\n`);
               if (e.hex) logStream.write(formatHex(e.hex));
             } else if (e.type === 'tcp') {
               const arrow = e.direction === 'sent' ? '→' : '←';
-              process.stdout.write(`${e.ts}${scenarioTag} ${arrow} [TCP] ${e.event}\n`);
+              safeWrite(`${e.ts}${scenarioTag} ${arrow} [TCP] ${e.event}\n`);
               logStream.write(`${e.ts}${scenarioTag} ${arrow} [TCP] ${e.event}\n`);
             } else if (e.type === 'fuzz') {
-              process.stdout.write(`${e.ts}${scenarioTag} ⚡ [FUZZ] ${e.message}\n`);
+              safeWrite(`${e.ts}${scenarioTag} ⚡ [FUZZ] ${e.message}\n`);
               logStream.write(`${e.ts}${scenarioTag} ⚡ [FUZZ] ${e.message}\n`);
             } else if (e.type === 'info') {
-              process.stdout.write(`${e.ts}${scenarioTag} ℹ ${e.message}\n`);
+              safeWrite(`${e.ts}${scenarioTag} ℹ ${e.message}\n`);
               logStream.write(`${e.ts}${scenarioTag} ℹ ${e.message}\n`);
             }
           } else if (event.type === 'result') {
             const r = event.result;
-            process.stdout.write(`\nRESULT [${r.scenario}]: ${r.status} (${r.response || ''})\n`);
+            safeWrite(`\nRESULT [${r.scenario}]: ${r.status} (${r.response || ''})\n`);
             logStream.write(`\nRESULT [${r.scenario}]: ${r.status} (${r.response || ''})\n`);
           }
         } catch (e) {}
