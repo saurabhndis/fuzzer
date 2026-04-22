@@ -1,8 +1,8 @@
 {
-  "timestamp": "2026-04-13T03:40:36.039Z",
-  "total": 12,
+  "timestamp": "2026-04-19T01:02:09.163Z",
+  "total": 1,
   "verifyCounts": {
-    "ok": 12,
+    "ok": 1,
     "mismatch": 0,
     "unverified": 0,
     "flake": 0,
@@ -11,134 +11,13 @@
   },
   "results": [
     {
-      "scenario": "alpn-unknown-protocols-small-ch",
-      "category": "L",
-      "expected": "DROPPED",
-      "status": "tls-alert-server",
-      "response": "Alert(fatal, HANDSHAKE_FAILURE)",
+      "scenario": "fv-tls-well-behaved-small-ch",
+      "category": "FV",
+      "expected": "PASSED",
+      "status": "PASSED",
+      "response": "Handshake successful, received 59 bytes",
       "verify": "ok",
-      "reason": "protocol alert",
-      "retryClassification": null,
-      "retryAttemptCount": 1
-    },
-    {
-      "scenario": "alpn-unknown-protocols-pqc-ch",
-      "category": "L",
-      "expected": "DROPPED",
-      "status": "tls-alert-server",
-      "response": "Alert(fatal, HANDSHAKE_FAILURE)",
-      "verify": "ok",
-      "reason": "protocol alert",
-      "retryClassification": null,
-      "retryAttemptCount": 1
-    },
-    {
-      "scenario": "alpn-empty-protocol-small-ch",
-      "category": "L",
-      "expected": "DROPPED",
-      "status": "tls-alert-server",
-      "response": "Alert(fatal, DECODE_ERROR)",
-      "verify": "ok",
-      "reason": "protocol alert",
-      "retryClassification": null,
-      "retryAttemptCount": 1
-    },
-    {
-      "scenario": "alpn-empty-protocol-pqc-ch",
-      "category": "L",
-      "expected": "DROPPED",
-      "status": "tls-alert-server",
-      "response": "Alert(fatal, DECODE_ERROR)",
-      "verify": "ok",
-      "reason": "protocol alert",
-      "retryClassification": null,
-      "retryAttemptCount": 1
-    },
-    {
-      "scenario": "alpn-oversized-list-small-ch",
-      "category": "L",
-      "expected": "DROPPED",
-      "status": "tls-alert-server",
-      "response": "Alert(fatal, HANDSHAKE_FAILURE)",
-      "verify": "ok",
-      "reason": "protocol alert",
-      "retryClassification": null,
-      "retryAttemptCount": 1
-    },
-    {
-      "scenario": "alpn-oversized-list-pqc-ch",
-      "category": "L",
-      "expected": "DROPPED",
-      "status": "tls-alert-server",
-      "response": "Alert(fatal, HANDSHAKE_FAILURE)",
-      "verify": "ok",
-      "reason": "protocol alert",
-      "retryClassification": null,
-      "retryAttemptCount": 1
-    },
-    {
-      "scenario": "alpn-duplicate-protocols-small-ch",
-      "category": "L",
-      "expected": "DROPPED",
-      "status": "tls-alert-server",
-      "response": "Alert(fatal, HANDSHAKE_FAILURE)",
-      "verify": "ok",
-      "reason": "protocol alert",
-      "retryClassification": null,
-      "retryAttemptCount": 1
-    },
-    {
-      "scenario": "alpn-duplicate-protocols-pqc-ch",
-      "category": "L",
-      "expected": "DROPPED",
-      "status": "tls-alert-server",
-      "response": "Alert(fatal, HANDSHAKE_FAILURE)",
-      "verify": "ok",
-      "reason": "protocol alert",
-      "retryClassification": null,
-      "retryAttemptCount": 1
-    },
-    {
-      "scenario": "alpn-very-long-name-small-ch",
-      "category": "L",
-      "expected": "DROPPED",
-      "status": "tls-alert-server",
-      "response": "Alert(fatal, HANDSHAKE_FAILURE)",
-      "verify": "ok",
-      "reason": "protocol alert",
-      "retryClassification": null,
-      "retryAttemptCount": 1
-    },
-    {
-      "scenario": "alpn-very-long-name-pqc-ch",
-      "category": "L",
-      "expected": "DROPPED",
-      "status": "tls-alert-server",
-      "response": "Alert(fatal, HANDSHAKE_FAILURE)",
-      "verify": "ok",
-      "reason": "protocol alert",
-      "retryClassification": null,
-      "retryAttemptCount": 1
-    },
-    {
-      "scenario": "alpn-wrong-list-length-small-ch",
-      "category": "L",
-      "expected": "DROPPED",
-      "status": "tls-alert-server",
-      "response": "Alert(fatal, DECODE_ERROR)",
-      "verify": "ok",
-      "reason": "protocol alert",
-      "retryClassification": null,
-      "retryAttemptCount": 1
-    },
-    {
-      "scenario": "alpn-wrong-list-length-pqc-ch",
-      "category": "L",
-      "expected": "DROPPED",
-      "status": "tls-alert-server",
-      "response": "Alert(fatal, DECODE_ERROR)",
-      "verify": "ok",
-      "reason": "protocol alert",
+      "reason": "handshake completed",
       "retryClassification": null,
       "retryAttemptCount": 1
     }
