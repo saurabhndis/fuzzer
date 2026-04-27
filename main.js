@@ -1113,6 +1113,36 @@ const send = (channel, data) => {
   }
 };
 
+function subscribeDistributedEvents() {
+  if (currentDistributedUnsub) { try { currentDistributedUnsub(); } catch (_) {} currentDistributedUnsub = null; }
+
+  currentDistributedUnsub = controller.onEvent((role, event) => {
+    switch (event.type) {
+      case 'logger':
+        send('fuzzer-packet', { ...event.event, agentRole: role });
+        break;
+      case 'progress':
+        send('fuzzer-progress', { ...event, agentRole: role });
+        break;
+      case 'result':
+        send('fuzzer-result', { ...event.result, agentRole: role });
+        break;
+      case 'report':
+        send('fuzzer-report', { ...event.report, agentRole: role });
+        break;
+      case 'done':
+        send('distributed-agent-done', { role });
+        break;
+      case 'status':
+        send('distributed-agent-status', { role, ...event });
+        break;
+      case 'error':
+        send('fuzzer-packet', { type: 'error', message: event.message, agentRole: role });
+        break;
+    }
+  });
+}
+
 // Connect to remote agents
 ipcMain.handle('distributed-connect', async (_event, opts) => {
   const { clientHost, clientPort, clientToken, serverHost, serverPort, serverToken } = opts;
@@ -1197,44 +1227,16 @@ ipcMain.handle('distributed-configure', async (_event, opts) => {
 // Start distributed execution — subscribe to events and trigger both agents
 ipcMain.handle('distributed-run', async () => {
   if (!controller) return { error: 'Not connected' };
-
-  // Tear down any leftover listener from a prior run before subscribing,
-  // otherwise events get broadcast through every accumulated listener and
-  // results show up multiple times in the UI.
-  if (currentDistributedUnsub) { try { currentDistributedUnsub(); } catch (_) {} currentDistributedUnsub = null; }
-
-  // Subscribe to all events from both agents and relay via IPC
-  currentDistributedUnsub = controller.onEvent((role, event) => {
-    switch (event.type) {
-      case 'logger':
-        send('fuzzer-packet', { ...event.event, agentRole: role });
-        break;
-      case 'progress':
-        send('fuzzer-progress', { ...event, agentRole: role });
-        break;
-      case 'result':
-        send('fuzzer-result', { ...event.result, agentRole: role });
-        break;
-      case 'report':
-        send('fuzzer-report', { ...event.report, agentRole: role });
-        break;
-      case 'done':
-        send('distributed-agent-done', { role });
-        break;
-      case 'status':
-        send('distributed-agent-status', { role, ...event });
-        break;
-      case 'error':
-        send('fuzzer-packet', { type: 'error', message: event.message, agentRole: role });
-        break;
-    }
-  });
-
+  const totalPairs = controller.stepPlan.length;
+  if (totalPairs <= 0) {
+    return { error: 'Legacy distributed-run is disabled; configure stepped pairs first' };
+  }
+  subscribeDistributedEvents();
   try {
-    await controller.runAll();
-    return { ok: true };
+    const result = await controller.runStepped(totalPairs);
+    return result || { ok: true, failures: [] };
   } catch (err) {
-    return { error: err.message };
+    return { ok: false, failures: [{ error: err.message, phase: 'runStepped' }], error: err.message };
   }
 });
 
@@ -1246,34 +1248,7 @@ ipcMain.handle('distributed-run-stepped', async (_event, opts) => {
 
   // Tear down any leftover listener from a prior run before subscribing —
   // see distributed-run for the rationale.
-  if (currentDistributedUnsub) { try { currentDistributedUnsub(); } catch (_) {} currentDistributedUnsub = null; }
-
-  // Subscribe to all events from both agents and relay via IPC
-  currentDistributedUnsub = controller.onEvent((role, event) => {
-    switch (event.type) {
-      case 'logger':
-        send('fuzzer-packet', { ...event.event, agentRole: role });
-        break;
-      case 'progress':
-        send('fuzzer-progress', { ...event, agentRole: role });
-        break;
-      case 'result':
-        send('fuzzer-result', { ...event.result, agentRole: role });
-        break;
-      case 'report':
-        send('fuzzer-report', { ...event.report, agentRole: role });
-        break;
-      case 'done':
-        send('distributed-agent-done', { role });
-        break;
-      case 'status':
-        send('distributed-agent-status', { role, ...event });
-        break;
-      case 'error':
-        send('fuzzer-packet', { type: 'error', message: event.message, agentRole: role });
-        break;
-    }
-  });
+  subscribeDistributedEvents();
 
   try {
     // runStepped returns a structured result so per-pair failures don't get
