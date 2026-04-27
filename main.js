@@ -1276,10 +1276,13 @@ ipcMain.handle('distributed-run-stepped', async (_event, opts) => {
   });
 
   try {
-    await controller.runStepped(totalPairs);
-    return { ok: true };
+    // runStepped returns a structured result so per-pair failures don't get
+    // hidden behind a blanket { ok: true }. Forward verbatim — the renderer
+    // can decide how to surface failures in the UI.
+    const result = await controller.runStepped(totalPairs);
+    return result || { ok: true, failures: [] };
   } catch (err) {
-    return { error: err.message };
+    return { ok: false, failures: [{ error: err.message, phase: 'runStepped' }], error: err.message };
   }
 });
 
@@ -1345,6 +1348,25 @@ ipcMain.handle('distributed-deploy', async (_event, opts) => {
     }
   };
 
+  // Translate the renderer's protocol selection into deployer-level
+  // capability requirements. The deployer uses these to (a) pick the
+  // minimum Node version for install (24+ if QUIC), (b) probe the right
+  // require()s post-install, and (c) refuse to declare deploy successful
+  // when the requested capability isn't actually ready on the remote box.
+  // Callers can also pass an explicit `capabilities` map to override.
+  function capsFor(protocol, override) {
+    const caps = { tls: true, http2: true, quic: false, rawTcp: false };
+    switch ((protocol || '').toLowerCase()) {
+      case 'quic':    caps.quic = true; break;
+      case 'h2':      caps.http2 = true; break;
+      case 'raw-tcp': caps.rawTcp = true; break;
+      // 'tls' and unset stick to the defaults
+    }
+    return Object.assign(caps, override || {});
+  }
+  const requiredCapabilities = capsFor(opts.protocol, opts.capabilities);
+  sendDeploy({ role: 'bundle', phase: 'plan', message: `Required capabilities: ${JSON.stringify(requiredCapabilities)}` });
+
   try {
     // Build agent bundle once
     sendDeploy({ role: 'bundle', phase: 'build', message: 'Building agent bundle...' });
@@ -1364,6 +1386,7 @@ ipcMain.handle('distributed-deploy', async (_event, opts) => {
         privateKeyPath: opts.client.keyPath || null,
         role: 'client',
         controlPort: opts.client.controlPort || 9200,
+        requiredCapabilities,
       });
       activeDeployers.client = clientDeployer;
       clientDeployer.on('status', (data) => sendDeploy(data));
@@ -1385,6 +1408,7 @@ ipcMain.handle('distributed-deploy', async (_event, opts) => {
         privateKeyPath: opts.server.keyPath || null,
         role: 'server',
         controlPort: opts.server.controlPort || 9201,
+        requiredCapabilities,
       });
       activeDeployers.server = serverDeployer;
       serverDeployer.on('status', (data) => sendDeploy(data));

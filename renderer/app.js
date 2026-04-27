@@ -337,6 +337,10 @@
     deployLog.innerHTML = '';
 
     const opts = {};
+    // Tell main which protocol the upcoming run will exercise so the deployer
+    // can verify the right capabilities (Node 24+ for QUIC, raw-socket for
+    // raw TCP, etc.). Falls back to the currently selected tab.
+    opts.protocol = activeProtocol;
     if (cHost) {
       opts.client = {
         host: cHost,
@@ -369,18 +373,28 @@
       if (result.clientConnectError) appendDeployLog('client', 'error', `Connect failed: ${result.clientConnectError}`, 'error');
       if (result.serverConnectError) appendDeployLog('server', 'error', `Connect failed: ${result.serverConnectError}`, 'error');
 
+      // Format the deployer's capability summary as a one-line status. Lets
+      // the operator see, at a glance, which protocols are actually ready on
+      // the deployed box — control plane up + tls/h2/quic/raw-tcp readiness.
+      const fmtCaps = (c) => {
+        if (!c) return '';
+        const flags = ['tls', 'http2', 'quic', 'rawTcp']
+          .map(k => `${k}=${c[k] ? 'ok' : '—'}`).join(' ');
+        return ` [node ${c.nodeVersion || '?'}, ${flags}]`;
+      };
+
       // Update agent status dots and IP fields
       if (result.client && !result.clientConnectError) {
         clientAgentIp.value = result.client.host;
         setAgentStatus('client', 'ready');
         connectedAgents.client = true;
-        appendDeployLog('client', 'done', `Agent connected at ${result.client.host}:${result.client.controlPort}`, 'ok');
+        appendDeployLog('client', 'done', `Agent connected at ${result.client.host}:${result.client.controlPort}${fmtCaps(result.client.capabilities)}`, 'ok');
       }
       if (result.server && !result.serverConnectError) {
         serverAgentIp.value = result.server.host;
         setAgentStatus('server', 'ready');
         connectedAgents.server = true;
-        appendDeployLog('server', 'done', `Agent connected at ${result.server.host}:${result.server.controlPort}`, 'ok');
+        appendDeployLog('server', 'done', `Agent connected at ${result.server.host}:${result.server.controlPort}${fmtCaps(result.server.capabilities)}`, 'ok');
       }
 
       if (connectedAgents.client || connectedAgents.server) {
