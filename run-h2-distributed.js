@@ -110,11 +110,18 @@ async function main() {
       host: '127.0.0.1', port: FUZZER_PORT, logger: wbClientLogger,
     });
 
-    // When the server is ready for this scenario, connect the client after a brief delay
+    // When the server is ready for this scenario, connect the client after a brief delay.
+    // For raw-TLS server scenarios that emit malformed H2 frames, use the raw byte-reader
+    // client instead of Node's http2 module — Node's nghttp2 leaks memory on certain
+    // protocol errors (e.g. CONTINUATION flood) and trips a native abort at GC.
     srvFuzzer._onListening = () => {
       srvFuzzer._onListening = null;
+      const useRaw = !!scenario.useRawTLS;
       setTimeout(async () => {
-        try { await wbClient.connectH2(); } catch (_) {}
+        try {
+          if (useRaw) await wbClient.connectRawH2();
+          else await wbClient.connectH2();
+        } catch (_) {}
       }, 200);
     };
 

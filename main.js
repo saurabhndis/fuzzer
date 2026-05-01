@@ -13,6 +13,7 @@ const { listHttp2Scenarios, getHttp2Scenario, HTTP2_CATEGORY_DEFAULT_DISABLED } 
 const { listQuicScenarios, getQuicScenario, QUIC_CATEGORY_DEFAULT_DISABLED } = require('./lib/quic-scenarios');
 const { listTcpScenarios, getTcpScenario, TCP_CATEGORIES, TCP_CATEGORY_SEVERITY } = require('./lib/tcp-scenarios');
 const { isRawAvailable } = require('./lib/raw-tcp');
+const { getDistributedAppServerHelper, getDistributedAppClientHelper } = require('./lib/app-protocol-scenarios');
 
 // Categories that represent non-fuzz (clean) traffic: well-behaved, scan, probe, detection
 const NON_FUZZ_CATEGORIES = new Set([
@@ -1180,6 +1181,34 @@ ipcMain.handle('distributed-configure', async (_event, opts) => {
   if (!controller) return { error: 'Not connected' };
   const { clientScenarios, serverScenarios, pcapScenarios, clientConfig, serverConfig } = opts;
   try {
+    if (clientConfig?.protocol === 'tls' || serverConfig?.protocol === 'tls') {
+      const pairCount = Math.max((clientScenarios || []).length, (serverScenarios || []).length);
+      for (let i = 0; i < pairCount; i++) {
+        const clientName = clientScenarios?.[i] || null;
+        const serverName = serverScenarios?.[i] || null;
+        const clientScenario = clientName ? getScenario(clientName) : null;
+        const serverScenario = serverName ? getScenario(serverName) : null;
+
+        if (clientScenario?.category === 'APP') {
+          const expectedServer = getDistributedAppServerHelper(clientName);
+          if (!expectedServer || serverName !== expectedServer) {
+            return {
+              error: `Distributed TLS APP scenario ${clientName} must be paired with ${expectedServer || 'its protocol-aware server helper'}, not ${serverName || 'nothing'}`,
+            };
+          }
+        }
+
+        if (serverScenario?.category === 'APP') {
+          const expectedClient = getDistributedAppClientHelper(serverName);
+          if (!expectedClient || clientName !== expectedClient) {
+            return {
+              error: `Distributed TLS APP scenario ${serverName} must be paired with ${expectedClient || 'its protocol-aware client helper'}, not ${clientName || 'nothing'}`,
+            };
+          }
+        }
+      }
+    }
+
     let clientPcapScenarios = undefined;
     let serverPcapScenarios = undefined;
 

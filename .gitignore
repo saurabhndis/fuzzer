@@ -8,3 +8,7 @@ test-output/
 pcap-tests/*.json
 .DS_Store
 tls-verify-results.json
+.codex-write-check
+*.swp
+cert.pem
+key.pem

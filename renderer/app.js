@@ -1,6 +1,7 @@
 // WireStrike — Protocol Security Testing Suite — Renderer
 (function () {
   'use strict';
+  const { getDistributedAppServerHelper, getDistributedAppClientHelper } = require('../lib/app-protocol-scenarios');
 
   // DOM elements
   const modeSelect = document.getElementById('modeSelect');
@@ -1674,7 +1675,7 @@
     const serverScenariosFinal = [];
 
     let wbServer = 'well-behaved-server';
-    let wbClient = 'well-behaved-client';
+    let wbClient = 'fv-tls-well-behaved-small-ch';
     if (activeProtocol === 'h2') {
       wbServer = 'well-behaved-h2-server';
       wbClient = 'well-behaved-h2-client';
@@ -1683,29 +1684,43 @@
       wbClient = 'well-behaved-quic-client';
     }
 
+    const helperClientForServerScenario = (scenarioName) => {
+      if (activeProtocol !== 'tls') return wbClient;
+      const appHelper = getDistributedAppClientHelper(scenarioName);
+      if (appHelper) return appHelper;
+      return String(scenarioName || '').includes('pqc')
+        ? 'fv-tls-well-behaved-pqc-ch'
+        : 'fv-tls-well-behaved-small-ch';
+    };
+
+    const helperServerForClientScenario = (scenarioName) => {
+      if (activeProtocol !== 'tls') return wbServer;
+      return getDistributedAppServerHelper(scenarioName) || wbServer;
+    };
+
     if (clientScenarios.length > 0 && serverScenarios.length === 0) {
       // Phase: Client Fuzzing only
       clientScenariosFinal.push(...clientScenarios);
-      for (let i = 0; i < clientScenarios.length; i++) {
-        serverScenariosFinal.push(wbServer);
+      for (const scenarioName of clientScenarios) {
+        serverScenariosFinal.push(helperServerForClientScenario(scenarioName));
       }
     } else if (serverScenarios.length > 0 && clientScenarios.length === 0) {
       // Phase: Server Fuzzing only
       serverScenariosFinal.push(...serverScenarios);
-      for (let i = 0; i < serverScenarios.length; i++) {
-        clientScenariosFinal.push(wbClient);
+      for (const scenarioName of serverScenarios) {
+        clientScenariosFinal.push(helperClientForServerScenario(scenarioName));
       }
     } else if (clientScenarios.length > 0 && serverScenarios.length > 0) {
       // Combined Phase: Client Fuzzing followed by Server Fuzzing
       // 1. Client Fuzzing Batch
       clientScenariosFinal.push(...clientScenarios);
-      for (let i = 0; i < clientScenarios.length; i++) {
-        serverScenariosFinal.push(wbServer);
+      for (const scenarioName of clientScenarios) {
+        serverScenariosFinal.push(helperServerForClientScenario(scenarioName));
       }
       // 2. Server Fuzzing Batch
       serverScenariosFinal.push(...serverScenarios);
-      for (let i = 0; i < serverScenarios.length; i++) {
-        clientScenariosFinal.push(wbClient);
+      for (const scenarioName of serverScenarios) {
+        clientScenariosFinal.push(helperClientForServerScenario(scenarioName));
       }
     }
 
