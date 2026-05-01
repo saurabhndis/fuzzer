@@ -1,7 +1,30 @@
 // WireStrike — Protocol Security Testing Suite — Renderer
 (function () {
   'use strict';
-  const { getDistributedAppServerHelper, getDistributedAppClientHelper } = require('../lib/app-protocol-scenarios');
+
+  // Inlined from lib/app-protocol-scenarios.js — renderer runs with
+  // nodeIntegration:false, so require() is not available here.
+  function getDistributedAppServerHelper(clientScenarioName) {
+    if (!clientScenarioName) return null;
+    if (clientScenarioName.startsWith('smtp-implicit-tls-')) return 'smtp-implicit-tls-well-behaved-server';
+    if (clientScenarioName.startsWith('smtp-starttls-')) return 'smtp-starttls-well-behaved-server';
+    if (clientScenarioName.startsWith('ftp-implicit-tls-')) return 'ftp-implicit-tls-well-behaved-server';
+    if (clientScenarioName.startsWith('ftp-starttls-')) return 'ftp-starttls-well-behaved-server';
+    if (clientScenarioName.startsWith('ldap-implicit-tls-')) return 'ldap-implicit-tls-well-behaved-server';
+    if (clientScenarioName.startsWith('ldap-starttls-')) return 'ldap-starttls-well-behaved-server';
+    return null;
+  }
+
+  function getDistributedAppClientHelper(serverScenarioName) {
+    if (!serverScenarioName) return null;
+    if (serverScenarioName === 'smtp-implicit-tls-well-behaved-server') return 'smtp-implicit-tls-well-behaved';
+    if (serverScenarioName === 'smtp-starttls-well-behaved-server') return 'smtp-starttls-well-behaved';
+    if (serverScenarioName === 'ftp-implicit-tls-well-behaved-server') return 'ftp-implicit-tls-well-behaved';
+    if (serverScenarioName === 'ftp-starttls-well-behaved-server') return 'ftp-starttls-well-behaved';
+    if (serverScenarioName === 'ldap-implicit-tls-well-behaved-server') return 'ldap-implicit-tls-well-behaved';
+    if (serverScenarioName === 'ldap-starttls-well-behaved-server') return 'ldap-starttls-well-behaved';
+    return null;
+  }
 
   // DOM elements
   const modeSelect = document.getElementById('modeSelect');

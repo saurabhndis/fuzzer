@@ -1189,20 +1189,18 @@ ipcMain.handle('distributed-configure', async (_event, opts) => {
         const clientScenario = clientName ? getScenario(clientName) : null;
         const serverScenario = serverName ? getScenario(serverName) : null;
 
-        if (clientScenario?.category === 'APP') {
-          const expectedServer = getDistributedAppServerHelper(clientName);
-          if (!expectedServer || serverName !== expectedServer) {
-            return {
-              error: `Distributed TLS APP scenario ${clientName} must be paired with ${expectedServer || 'its protocol-aware server helper'}, not ${serverName || 'nothing'}`,
-            };
-          }
-        }
+        if (clientScenario?.category === 'APP' || serverScenario?.category === 'APP') {
+          // A valid APP pair has the fuzz target on one side and its
+          // well-behaved helper on the other. Accept the pair if either
+          // direction matches — both helpers (well-behaved baseline) is fine.
+          const expectedServerForClient = getDistributedAppServerHelper(clientName);
+          const expectedClientForServer = getDistributedAppClientHelper(serverName);
+          const clientPairsToServer = !!expectedServerForClient && serverName === expectedServerForClient;
+          const serverPairsToClient = !!expectedClientForServer && clientName === expectedClientForServer;
 
-        if (serverScenario?.category === 'APP') {
-          const expectedClient = getDistributedAppClientHelper(serverName);
-          if (!expectedClient || clientName !== expectedClient) {
+          if (!clientPairsToServer && !serverPairsToClient) {
             return {
-              error: `Distributed TLS APP scenario ${serverName} must be paired with ${expectedClient || 'its protocol-aware client helper'}, not ${clientName || 'nothing'}`,
+              error: `Distributed TLS APP pair invalid: client=${clientName || 'none'} server=${serverName || 'none'}. Each fuzz scenario must be paired with its protocol-aware well-behaved peer.`,
             };
           }
         }
