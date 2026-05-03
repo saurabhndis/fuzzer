@@ -1117,6 +1117,73 @@ const send = (channel, data) => {
 function subscribeDistributedEvents() {
   if (currentDistributedUnsub) { try { currentDistributedUnsub(); } catch (_) {} currentDistributedUnsub = null; }
 
+  // For server-fuzz scenarios the meaningful signal lives on the client-side
+  // helper, not the server's "Handler executed" filler. We buffer the
+  // server-side `result` event for a short window and merge in the matching
+  // `debug-result` from the client agent (correlated by pairId) before
+  // forwarding a single row to the renderer. Helper results that arrive
+  // before the fuzz row sit in `pendingHelperResults` until claimed.
+  // Server-fuzz handlers usually finish in ms (just sending malformed
+  // packets), but the well-behaved peer takes its full handshake timeout
+  // (~5s for TLS/QUIC) before the helper's debug-result arrives. Wait long
+  // enough to cover that, otherwise the row emits with the generic "Handler
+  // executed (...)" response instead of the merged helper observation.
+  const PAIR_MERGE_WAIT_MS = 8000;
+  const HELPER_RETAIN_MS = 10000;
+  const pendingFuzzRows = new Map();      // pairId → { event, role, timer }
+  const pendingHelperResults = new Map(); // pairId → { result, role, timer }
+
+  const emitFuzz = (event, role) => {
+    send('fuzzer-result', { ...event.result, agentRole: role });
+  };
+
+  // Verdict logic mirrors lib/unified-client.js _computeVerdict / lib/
+  // quic-fuzzer-client.js _computeVerdict. The fuzz scenario's `expected`
+  // describes what the *peer* (helper) should do — so we score it against
+  // the helper's observed status, not the server-fuzz handler's status.
+  const recomputeVerdict = (status, expected) => {
+    if (!expected) return 'N/A';
+    if (status === 'ERROR' || status === 'ABORTED') return 'N/A';
+    if (status === 'tls-alert-server' || status === 'tls-alert-client') {
+      return expected === 'PASSED' ? 'UNEXPECTED' : 'AS EXPECTED';
+    }
+    // PEER_DONE means the controller aborted the helper after the fuzz peer
+    // already finished — for server-fuzz pairs that's the *desired* outcome
+    // (the well-behaved client correctly failed to complete its handshake
+    // against the malformed peer), so collapse it onto DROPPED for verdict.
+    const norm = (s) => (s === 'TIMEOUT' || s === 'PEER_DONE') ? 'DROPPED' : s;
+    return norm(status) === norm(expected) ? 'AS EXPECTED' : 'UNEXPECTED';
+  };
+
+  const tryMerge = (pairId) => {
+    const fuzz = pendingFuzzRows.get(pairId);
+    const helper = pendingHelperResults.get(pairId);
+    if (!fuzz || !helper) return;
+    pendingFuzzRows.delete(pairId);
+    pendingHelperResults.delete(pairId);
+    clearTimeout(fuzz.timer);
+    clearTimeout(helper.timer);
+    const fuzzResult = fuzz.event.result;
+    const helperResult = helper.result;
+    const mergedStatus = helperResult.status || fuzzResult.status;
+    const merged = {
+      ...fuzzResult,
+      // For server-fuzz scenarios the meaningful signal is on the helper —
+      // use its status/response, then re-score the verdict against the
+      // fuzz scenario's `expected`.
+      status: mergedStatus,
+      response: helperResult.response || fuzzResult.response,
+      verdict: recomputeVerdict(mergedStatus, fuzzResult.expected),
+      helperResponse: helperResult.response,
+      helperStatus: helperResult.status,
+      helperVerdict: helperResult.verdict,
+      helperScenario: helperResult.scenario,
+      handlerResponse: fuzzResult.response,
+      handlerStatus: fuzzResult.status,
+    };
+    send('fuzzer-result', { ...merged, agentRole: fuzz.role });
+  };
+
   currentDistributedUnsub = controller.onEvent((role, event) => {
     switch (event.type) {
       case 'logger':
@@ -1125,9 +1192,32 @@ function subscribeDistributedEvents() {
       case 'progress':
         send('fuzzer-progress', { ...event, agentRole: role });
         break;
-      case 'result':
-        send('fuzzer-result', { ...event.result, agentRole: role });
+      case 'result': {
+        // Hold server-fuzz rows briefly so a late-arriving helper result can
+        // overwrite the generic "Handler executed" response. Other rows pass
+        // straight through.
+        const isServerFuzz = role === 'server' && event.side === 'server' && event.pairId;
+        if (!isServerFuzz) { emitFuzz(event, role); break; }
+        const pairId = String(event.pairId);
+        const timer = setTimeout(() => {
+          const buffered = pendingFuzzRows.get(pairId);
+          if (buffered) {
+            pendingFuzzRows.delete(pairId);
+            emitFuzz(buffered.event, buffered.role);
+          }
+        }, PAIR_MERGE_WAIT_MS);
+        pendingFuzzRows.set(pairId, { event, role, timer });
+        tryMerge(pairId);
         break;
+      }
+      case 'debug-result': {
+        if (!event.pairId || !event.result) break;
+        const pairId = String(event.pairId);
+        const timer = setTimeout(() => pendingHelperResults.delete(pairId), HELPER_RETAIN_MS);
+        pendingHelperResults.set(pairId, { result: event.result, role, timer });
+        tryMerge(pairId);
+        break;
+      }
       case 'report':
         send('fuzzer-report', { ...event.report, agentRole: role });
         break;

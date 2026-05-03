@@ -64,6 +64,32 @@ body {
   color: var(--accent);
 }
 
+.header-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.elapsed-clock {
+  min-width: 92px;
+  padding: 3px 9px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  font-family: 'SF Mono', 'Menlo', 'Consolas', monospace;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  background: var(--bg-tertiary);
+  text-align: center;
+  white-space: nowrap;
+}
+
+.elapsed-clock.running {
+  color: var(--accent-dim);
+  border-color: rgba(99, 102, 241, 0.28);
+  background: rgba(99, 102, 241, 0.08);
+}
+
 .header-status {
   padding: 3px 10px;
   border-radius: 12px;

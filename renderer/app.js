@@ -56,6 +56,7 @@
   const summaryBar = document.getElementById('summaryBar');
   const summaryText = document.getElementById('summaryText');
   const statusBadge = document.getElementById('statusBadge');
+  const elapsedClock = document.getElementById('elapsedClock');
   const localModeCheck = document.getElementById('localModeCheck');
   const baselineCheck = document.getElementById('baselineCheck');
   const distributedCheck = document.getElementById('distributedCheck');
@@ -124,6 +125,8 @@
   let categories = {};
   let currentPcapScenario = null;
   let defaultDisabled = new Set();
+  let runStartedAt = null;
+  let elapsedTimer = null;
   let allH2Scenarios = {};
   let h2Categories = {};
   let h2DefaultDisabled = new Set();
@@ -2023,8 +2026,20 @@
     if (distributedMode && result.agentRole) {
       modeSelect.value = result.agentRole;
     }
-    // Hide well-behaved counterpart results — they are internal helpers, not actual tests
-    if (result.scenario && result.scenario.includes('well-behaved')) {
+    // Hide internal helper-counterpart results, but keep user-selected
+    // diagnostic baselines (e.g. `quic-well-behaved-single-get`). The earlier
+    // `includes('well-behaved')` check was too broad — it also swallowed the
+    // QZ baselines, which is why the result count comes up 8 short on a full
+    // QUIC distributed run. The patterns below match every helper the
+    // renderer generates as a counterpart (well-behaved-*, srv-quic-…,
+    // fv-tls-…, and the SMTP/FTP/LDAP STARTTLS pairs) but leave fuzz/baseline
+    // scenarios alone.
+    if (result.scenario && (
+      result.scenario.startsWith('well-behaved-') ||
+      result.scenario.startsWith('srv-quic-well-behaved-') ||
+      result.scenario.startsWith('fv-tls-well-behaved-') ||
+      /-well-behaved(-server)?$/.test(result.scenario)
+    )) {
       return;
     }
     const meta = findScenarioMeta(result.scenario);
@@ -2228,6 +2243,41 @@
     }
   }
 
+  function formatElapsed(ms) {
+    const totalSeconds = Math.max(0, Math.floor(ms / 1000));
+    const hours = Math.floor(totalSeconds / 3600);
+    const minutes = Math.floor((totalSeconds % 3600) / 60);
+    const seconds = totalSeconds % 60;
+    const mm = String(minutes).padStart(2, '0');
+    const ss = String(seconds).padStart(2, '0');
+    if (hours > 0) return `${hours}:${mm}:${ss}`;
+    return `${mm}:${ss}`;
+  }
+
+  function updateElapsedClock() {
+    if (!elapsedClock) return;
+    const elapsedMs = runStartedAt ? Date.now() - runStartedAt : 0;
+    elapsedClock.textContent = `Elapsed ${formatElapsed(elapsedMs)}`;
+  }
+
+  function startElapsedClock() {
+    stopElapsedClock();
+    runStartedAt = Date.now();
+    updateElapsedClock();
+    elapsedClock?.classList.add('running');
+    elapsedTimer = setInterval(updateElapsedClock, 1000);
+  }
+
+  function stopElapsedClock({ reset = false } = {}) {
+    if (elapsedTimer) {
+      clearInterval(elapsedTimer);
+      elapsedTimer = null;
+    }
+    if (reset) runStartedAt = null;
+    updateElapsedClock();
+    elapsedClock?.classList.remove('running');
+  }
+
   // UI state management
   function setRunning(state) {
     running = state;
@@ -2239,8 +2289,11 @@
     distributedCheck.disabled = state;
 
     if (state) {
+      startElapsedClock();
       statusBadge.textContent = distributedMode ? 'DISTRIBUTED RUN' : 'RUNNING';
       statusBadge.className = 'header-status running';
+    } else {
+      stopElapsedClock();
     }
   }
 
@@ -2338,6 +2391,7 @@
     summaryBar.style.display = 'none';
     statusBadge.textContent = 'IDLE';
     statusBadge.className = 'header-status';
+    stopElapsedClock({ reset: true });
   });
 
   clearLogBtn.addEventListener('click', () => {
