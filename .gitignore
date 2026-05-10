@@ -12,3 +12,15 @@ tls-verify-results.json
 *.swp
 cert.pem
 key.pem
+
+# Local notes, plans, generated reports, and standalone test scripts
+must-fix.md
+plans/cross-peer-sync.md
+quic-distributed-soak-report.html
+test-barrier.js
+test-cancel-restart.js
+test-manifest-tracer.js
+test-qs-merge.js
+test-qs-timing.js
+test-quic-full.js
+test-qz-baseline.js

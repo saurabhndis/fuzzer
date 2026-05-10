@@ -37,19 +37,15 @@ All protocol handling (TLS, HTTP/2 frames, QUIC packets, X.509 certificates) is 
 
 The `@currentspace/http3` package provides a full QUIC+TLS 1.3 stack via Cloudflare's **quiche** engine with **BoringSSL** statically compiled into a single native binary. No system-level installation of quiche or BoringSSL is required — everything is self-contained in the `.node` addon.
 
-**Prebuilt binaries are included for all major platforms:**
+**Prebuilt binaries in the current locked package:**
 
 | Platform | Binary | Size |
 |----------|--------|------|
 | macOS ARM64 (Apple Silicon) | `http3.darwin-arm64.node` | 3.6 MB |
-| macOS x64 (Intel) | `http3.darwin-x64.node` | — |
 | Linux x64 (glibc — Ubuntu, Debian, Fedora, RHEL) | `http3.linux-x64-gnu.node` | 4.7 MB |
 | Linux ARM64 (glibc — AWS Graviton, etc.) | `http3.linux-arm64-gnu.node` | 4.3 MB |
-| Linux x64 (musl — Alpine, Docker alpine) | `http3.linux-x64-musl.node` | — |
-| Linux ARM64 (musl) | `http3.linux-arm64-musl.node` | — |
-| Windows x64 | `http3.win32-x64-msvc.node` | — |
 
-The loader auto-detects platform, architecture, and libc variant (glibc vs musl on Linux). On any supported platform, `npm install` pulls the correct binary automatically.
+The loader auto-detects platform, architecture, and libc variant. On any supported platform, `npm install` pulls the correct binary automatically.
 
 **Running on Linux (Ubuntu and similar):**
 
@@ -67,7 +63,7 @@ npm install
 node test-quiche.js
 ```
 
-No Rust compiler, no C toolchain, no system libraries needed. The same `npm install` works on macOS (ARM64 and x64), Linux (x64 and ARM64, glibc and musl), and Windows.
+No Rust compiler, no C toolchain, no system libraries needed. The same `npm install` works for the platforms listed above; Alpine/musl, Windows, and macOS x64 are not supported by the currently locked quiche package.
 
 If `@currentspace/http3` is not installed or fails to load, the fuzzer gracefully falls back to its built-in raw UDP packet builder for QUIC Initial packet fuzzing. Full QUIC connection lifecycle (handshake completion, multi-stream data exchange, flow control) requires the quiche library.
 
@@ -392,8 +388,9 @@ Click **TEARDOWN** to stop remote agents and clean up.
 **Requirements:**
 - Controller runs on **macOS** with native OpenSSH (no npm dependencies needed)
 - Password auth requires `sshpass` (`brew install sshpass`) — SSH key auth is recommended
-- Remote machines: Linux (primary) or Windows with OpenSSH
-- Node.js v18+ on remote machines (auto-installed on Linux if missing)
+- Remote machines for full TLS/HTTP2/QUIC coverage: supported Linux x64/arm64 with glibc
+- Auto-install targets Node.js v24+ with npm so the quiche-backed `@currentspace/http3` dependency can load
+- If the remote OS/version/arch cannot support auto-install or the quiche binary, the deploy log shows the exact error before upload/install continues
 
 **What gets deployed:**
 A minimal agent-only bundle (~270 KB) containing `lib/*.js`, `client.js`, `server.js`, and a stripped `package.json` — no Electron, no renderer, no test files. Deployed to `~/.wirestrike/` on each remote machine.

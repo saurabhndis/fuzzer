@@ -1055,6 +1055,7 @@ body.dut-active .results-table .fw-col { display: table-cell; }
   max-height: 80px;
   overflow-y: auto;
   line-height: 1.4;
+  white-space: pre-wrap;
 }
 
 .deploy-log .deploy-phase {

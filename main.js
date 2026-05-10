@@ -1441,15 +1441,13 @@ ipcMain.handle('distributed-deploy', async (_event, opts) => {
   };
 
   // Translate the renderer's protocol selection into deployer-level
-  // capability requirements. The deployer uses these to (a) pick the
-  // minimum Node version for install (24+ if QUIC), (b) probe the right
-  // require()s post-install, and (c) refuse to declare deploy successful
-  // when the requested capability isn't actually ready on the remote box.
+  // capability requirements. Auto-deploy now prepares hosts for the full
+  // normal test surface by default: TLS, HTTP/2, and QUIC via quiche.
+  // Raw TCP remains opt-in because it requires CAP_NET_RAW/root.
   // Callers can also pass an explicit `capabilities` map to override.
   function capsFor(protocol, override) {
-    const caps = { tls: true, http2: true, quic: false, rawTcp: false };
+    const caps = { tls: true, http2: true, quic: true, rawTcp: false };
     switch ((protocol || '').toLowerCase()) {
-      case 'quic':    caps.quic = true; break;
       case 'h2':      caps.http2 = true; break;
       case 'raw-tcp': caps.rawTcp = true; break;
       // 'tls' and unset stick to the defaults

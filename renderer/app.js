@@ -340,7 +340,11 @@
   function appendDeployLog(role, phase, message, type) {
     const cls = type === 'error' ? 'deploy-error' : type === 'ok' ? 'deploy-ok' : 'deploy-phase';
     const line = document.createElement('div');
-    line.innerHTML = `<span class="${cls}">[${role}/${phase}]</span> ${message}`;
+    const prefix = document.createElement('span');
+    prefix.className = cls;
+    prefix.textContent = `[${role}/${phase}]`;
+    line.appendChild(prefix);
+    line.appendChild(document.createTextNode(` ${message}`));
     deployLog.appendChild(line);
     deployLog.scrollTop = deployLog.scrollHeight;
   }
@@ -406,7 +410,7 @@
       const fmtCaps = (c) => {
         if (!c) return '';
         const flags = ['tls', 'http2', 'quic', 'rawTcp']
-          .map(k => `${k}=${c[k] ? 'ok' : '—'}`).join(' ');
+          .map(k => `${k}=${c[k] ? 'ok' : '-'}`).join(' ');
         return ` [node ${c.nodeVersion || '?'}, ${flags}]`;
       };
 
