@@ -1165,14 +1165,23 @@ function subscribeDistributedEvents() {
     clearTimeout(helper.timer);
     const fuzzResult = fuzz.event.result;
     const helperResult = helper.result;
-    const mergedStatus = helperResult.status || fuzzResult.status;
+    const helperWasReleased = helperResult.status === 'PEER_DONE';
+    const keepFuzzPass = fuzzResult.expected === 'PASSED' && helperWasReleased && fuzzResult.status === 'PASSED';
+    const mergedStatus = keepFuzzPass ? fuzzResult.status : (helperResult.status || fuzzResult.status);
+    const mergedResponse = keepFuzzPass
+      ? `${fuzzResult.response || 'Server-side scenario completed'}; helper peer released after server completed`
+      : (helperResult.response || fuzzResult.response);
     const merged = {
       ...fuzzResult,
       // For server-fuzz scenarios the meaningful signal is on the helper —
-      // use its status/response, then re-score the verdict against the
-      // fuzz scenario's `expected`.
+      // use its status/response, then re-score the verdict against the fuzz
+      // scenario's `expected`. Threat-transfer server scenarios are different:
+      // the server-side result is the transfer signal, and the helper often
+      // reports PEER_DONE because the controller released it after the payload
+      // was sent. Keep the server pass in that case so the UI does not show a
+      // false "Scenario aborted by peer-done" failure.
       status: mergedStatus,
-      response: helperResult.response || fuzzResult.response,
+      response: mergedResponse,
       verdict: recomputeVerdict(mergedStatus, fuzzResult.expected),
       helperResponse: helperResult.response,
       helperStatus: helperResult.status,
@@ -1269,7 +1278,7 @@ ipcMain.handle('distributed-connect', async (_event, opts) => {
 // Configure remote agents with scenarios
 ipcMain.handle('distributed-configure', async (_event, opts) => {
   if (!controller) return { error: 'Not connected' };
-  const { clientScenarios, serverScenarios, pcapScenarios, clientConfig, serverConfig } = opts;
+  const { clientScenarios, serverScenarios, pcapScenarios, clientConfig, serverConfig, helperPairs } = opts;
   try {
     if (clientConfig?.protocol === 'tls' || serverConfig?.protocol === 'tls') {
       const pairCount = Math.max((clientScenarios || []).length, (serverScenarios || []).length);
@@ -1330,7 +1339,8 @@ ipcMain.handle('distributed-configure', async (_event, opts) => {
     const configured = await controller.configureAll(
       clientScenarios, serverScenarios, 
       clientConfig, serverConfig,
-      clientPcapScenarios, serverPcapScenarios
+      clientPcapScenarios, serverPcapScenarios,
+      helperPairs || {}
     );
     if (!configured.client && !configured.server) {
       return { error: 'No agents were configured — check connections' };

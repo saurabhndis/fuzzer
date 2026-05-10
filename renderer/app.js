@@ -1703,6 +1703,7 @@
     // has a compliant partner. We run in two phases if both sides are selected.
     const clientScenariosFinal = [];
     const serverScenariosFinal = [];
+    const helperPairs = { client: [], server: [] };
 
     let wbServer = 'well-behaved-server';
     let wbClient = 'fv-tls-well-behaved-small-ch';
@@ -1728,29 +1729,32 @@
       return getDistributedAppServerHelper(scenarioName) || wbServer;
     };
 
+    const appendDistributedPair = (clientName, serverName, helperRole) => {
+      const pairId = String(clientScenariosFinal.length);
+      clientScenariosFinal.push(clientName);
+      serverScenariosFinal.push(serverName);
+      if (helperRole && helperPairs[helperRole]) helperPairs[helperRole].push(pairId);
+    };
+
     if (clientScenarios.length > 0 && serverScenarios.length === 0) {
       // Phase: Client Fuzzing only
-      clientScenariosFinal.push(...clientScenarios);
       for (const scenarioName of clientScenarios) {
-        serverScenariosFinal.push(helperServerForClientScenario(scenarioName));
+        appendDistributedPair(scenarioName, helperServerForClientScenario(scenarioName), 'server');
       }
     } else if (serverScenarios.length > 0 && clientScenarios.length === 0) {
       // Phase: Server Fuzzing only
-      serverScenariosFinal.push(...serverScenarios);
       for (const scenarioName of serverScenarios) {
-        clientScenariosFinal.push(helperClientForServerScenario(scenarioName));
+        appendDistributedPair(helperClientForServerScenario(scenarioName), scenarioName, 'client');
       }
     } else if (clientScenarios.length > 0 && serverScenarios.length > 0) {
       // Combined Phase: Client Fuzzing followed by Server Fuzzing
       // 1. Client Fuzzing Batch
-      clientScenariosFinal.push(...clientScenarios);
       for (const scenarioName of clientScenarios) {
-        serverScenariosFinal.push(helperServerForClientScenario(scenarioName));
+        appendDistributedPair(scenarioName, helperServerForClientScenario(scenarioName), 'server');
       }
       // 2. Server Fuzzing Batch
-      serverScenariosFinal.push(...serverScenarios);
       for (const scenarioName of serverScenarios) {
-        clientScenariosFinal.push(helperClientForServerScenario(scenarioName));
+        appendDistributedPair(helperClientForServerScenario(scenarioName), scenarioName, 'client');
       }
     }
 
@@ -1795,6 +1799,7 @@
         clientScenarios: clientScenariosFinal.length > 0 ? clientScenariosFinal : null,
         serverScenarios: serverScenariosFinal.length > 0 ? serverScenariosFinal : null,
         pcapScenarios: pcapScenarios.length > 0 ? pcapScenarios : null,
+        helperPairs,
         clientConfig: { host, port, delay, timeout, workers, protocol: activeProtocol, dut, pcapFile: pcapFile || null, mergePcap: !!pcapFile, baseline: baselineCheck.checked },
         serverConfig: { bindAddress: '0.0.0.0', hostname: host, port, delay, timeout, workers: 1, protocol: activeProtocol, dut, pcapFile: pcapFile || null, mergePcap: !!pcapFile, baseline: baselineCheck.checked },
       });
@@ -2030,20 +2035,11 @@
     if (distributedMode && result.agentRole) {
       modeSelect.value = result.agentRole;
     }
-    // Hide internal helper-counterpart results, but keep user-selected
-    // diagnostic baselines (e.g. `quic-well-behaved-single-get`). The earlier
-    // `includes('well-behaved')` check was too broad — it also swallowed the
-    // QZ baselines, which is why the result count comes up 8 short on a full
-    // QUIC distributed run. The patterns below match every helper the
-    // renderer generates as a counterpart (well-behaved-*, srv-quic-…,
-    // fv-tls-…, and the SMTP/FTP/LDAP STARTTLS pairs) but leave fuzz/baseline
-    // scenarios alone.
-    if (result.scenario && (
-      result.scenario.startsWith('well-behaved-') ||
-      result.scenario.startsWith('srv-quic-well-behaved-') ||
-      result.scenario.startsWith('fv-tls-well-behaved-') ||
-      /-well-behaved(-server)?$/.test(result.scenario)
-    )) {
+    // Helper-counterpart rows are suppressed by the main/agent distributed
+    // path using explicit helper pair IDs. If an older path still marks a row
+    // as helper, hide that marker only; helper-looking names can also be
+    // legitimate user-selected baseline scenarios and should remain visible.
+    if (result.helper || result.internalHelper) {
       return;
     }
     const meta = findScenarioMeta(result.scenario);
