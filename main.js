@@ -24,7 +24,7 @@ const NON_FUZZ_CATEGORIES = new Set([
   // QUIC
   'QZ', 'QSCAN', 'QM', 'QN', 'QO',
 ]);
-const { computeOverallGrade } = require('./lib/grader');
+const { computeOverallGrade, gradeResult } = require('./lib/grader');
 const { computeExpected } = require('./lib/compute-expected');
 const { Controller } = require('./lib/controller');
 const { runBaseline } = require('./lib/baseline');
@@ -40,6 +40,7 @@ let controller = null;
 // Held at module scope so we can detach it on stop or before the next run,
 // preventing controller.listeners from accumulating across runs.
 let currentDistributedUnsub = null;
+let currentDistributedDrain = null;
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -1116,6 +1117,7 @@ const send = (channel, data) => {
 
 function subscribeDistributedEvents() {
   if (currentDistributedUnsub) { try { currentDistributedUnsub(); } catch (_) {} currentDistributedUnsub = null; }
+  currentDistributedDrain = null;
 
   // For server-fuzz scenarios the meaningful signal lives on the client-side
   // helper, not the server's "Handler executed" filler. We buffer the
@@ -1171,6 +1173,7 @@ function subscribeDistributedEvents() {
     const mergedResponse = keepFuzzPass
       ? `${fuzzResult.response || 'Server-side scenario completed'}; helper peer released after server completed`
       : (helperResult.response || fuzzResult.response);
+    const mergedVerdict = recomputeVerdict(mergedStatus, fuzzResult.expected);
     const merged = {
       ...fuzzResult,
       // For server-fuzz scenarios the meaningful signal is on the helper —
@@ -1182,7 +1185,7 @@ function subscribeDistributedEvents() {
       // false "Scenario aborted by peer-done" failure.
       status: mergedStatus,
       response: mergedResponse,
-      verdict: recomputeVerdict(mergedStatus, fuzzResult.expected),
+      verdict: mergedVerdict,
       helperResponse: helperResult.response,
       helperStatus: helperResult.status,
       helperVerdict: helperResult.verdict,
@@ -1190,7 +1193,29 @@ function subscribeDistributedEvents() {
       handlerResponse: fuzzResult.response,
       handlerStatus: fuzzResult.status,
     };
+    try {
+      const meta = getScenario(fuzzResult.scenario) || getHttp2Scenario(fuzzResult.scenario) ||
+        getQuicScenario(fuzzResult.scenario) || getTcpScenario(fuzzResult.scenario);
+      merged.finding = gradeResult(merged, meta);
+    } catch (_) {}
     send('fuzzer-result', { ...merged, agentRole: fuzz.role });
+  };
+
+  const flushPendingRows = () => {
+    for (const [pairId, fuzz] of Array.from(pendingFuzzRows.entries())) {
+      if (pendingHelperResults.has(pairId)) {
+        tryMerge(pairId);
+        continue;
+      }
+      pendingFuzzRows.delete(pairId);
+      clearTimeout(fuzz.timer);
+      emitFuzz(fuzz.event, fuzz.role);
+    }
+  };
+
+  currentDistributedDrain = async (waitMs = 500) => {
+    await new Promise((resolve) => setTimeout(resolve, waitMs));
+    flushPendingRows();
   };
 
   currentDistributedUnsub = controller.onEvent((role, event) => {
@@ -1361,6 +1386,7 @@ ipcMain.handle('distributed-run', async () => {
   subscribeDistributedEvents();
   try {
     const result = await controller.runStepped(totalPairs);
+    if (currentDistributedDrain) await currentDistributedDrain();
     return result || { ok: true, failures: [] };
   } catch (err) {
     return { ok: false, failures: [{ error: err.message, phase: 'runStepped' }], error: err.message };
@@ -1382,6 +1408,7 @@ ipcMain.handle('distributed-run-stepped', async (_event, opts) => {
     // hidden behind a blanket { ok: true }. Forward verbatim — the renderer
     // can decide how to surface failures in the UI.
     const result = await controller.runStepped(totalPairs);
+    if (currentDistributedDrain) await currentDistributedDrain();
     return result || { ok: true, failures: [] };
   } catch (err) {
     return { ok: false, failures: [{ error: err.message, phase: 'runStepped' }], error: err.message };
@@ -1396,6 +1423,7 @@ ipcMain.handle('distributed-stop', async () => {
     // Detach the run's event listener so any straggling events from the
     // in-flight scenario don't get re-broadcast into the next run.
     if (currentDistributedUnsub) { try { currentDistributedUnsub(); } catch (_) {} currentDistributedUnsub = null; }
+    currentDistributedDrain = null;
     return { ok: true };
   } catch (err) {
     return { error: err.message };

@@ -35,10 +35,10 @@ function summarize(label, results) {
   return failed;
 }
 
-async function runBatch(controller, clientNames, serverNames, label) {
+async function runBatch(controller, clientNames, serverNames, label, helperPairs = {}) {
   const clientConfig = { host: 'localhost', port: TARGET_PORT, protocol: 'tls', workers: 1, timeout: 5000, delay: 10, baseline: false };
   const serverConfig = { hostname: 'localhost', port: TARGET_PORT, protocol: 'tls', workers: 1, timeout: 5000, delay: 10, baseline: false };
-  await controller.configureAll(clientNames, serverNames, clientConfig, serverConfig, [], []);
+  await controller.configureAll(clientNames, serverNames, clientConfig, serverConfig, [], [], helperPairs);
   const stepped = await controller.runStepped(Math.max(clientNames.length, serverNames.length));
   if (!stepped.ok) {
     throw new Error(`${label} stepped execution reported failures: ${JSON.stringify(stepped.failures || [])}`);
@@ -61,15 +61,31 @@ async function run() {
   const serverHelpers = clientScenarios.map(getDistributedAppServerHelper);
   const serverScenarios = getScenariosByCategory('APP').filter((s) => s.side === 'server').map((s) => s.name);
   const clientHelpers = serverScenarios.map(getDistributedAppClientHelper);
+  const clientDrivenHelperPairs = {
+    client: [],
+    server: clientScenarios.map((_, i) => String(i)),
+  };
+  const serverDrivenHelperPairs = {
+    client: serverScenarios.map((_, i) => String(i)),
+    server: [],
+  };
 
   let failures = 0;
   try {
-    const first = await runBatch(controller, clientScenarios, serverHelpers, 'client-driven');
+    const first = await runBatch(controller, clientScenarios, serverHelpers, 'client-driven', clientDrivenHelperPairs);
     failures += summarize('Client-Driven APP Distributed Results', first.clientResults);
-    failures += summarize('Client-Driven Helper Server Results', first.serverResults);
+    if (first.serverResults.length > 0) {
+      failures += summarize('Client-Driven Helper Server Results', first.serverResults);
+    } else {
+      console.log('\nClient-Driven Helper Server Results\n===================================\n  Helpers suppressed as debug results');
+    }
 
-    const second = await runBatch(controller, clientHelpers, serverScenarios, 'server-driven');
-    failures += summarize('Server-Driven Helper Client Results', second.clientResults);
+    const second = await runBatch(controller, clientHelpers, serverScenarios, 'server-driven', serverDrivenHelperPairs);
+    if (second.clientResults.length > 0) {
+      failures += summarize('Server-Driven Helper Client Results', second.clientResults);
+    } else {
+      console.log('\nServer-Driven Helper Client Results\n===================================\n  Helpers suppressed as debug results');
+    }
     failures += summarize('Server-Driven APP Distributed Results', second.serverResults);
   } finally {
     try { await controller.stopAll(); } catch (_) {}

@@ -146,6 +146,7 @@
   let distributedMode = false;
   let clientActiveWorkers = 0;
   let serverActiveWorkers = 0;
+  let distributedFinishTimer = null;
 
   // ── Scenario hover tooltip ──────────────────────────────────────────
   const scenarioTooltip = document.createElement('div');
@@ -1554,6 +1555,10 @@
     const totalScenarios = (customScenario ? 1 : (scenarioNames.length || (isPassiveServer ? 1 : 0))) * loopCount;
 
     setRunning(true);
+    if (distributedFinishTimer) {
+      clearTimeout(distributedFinishTimer);
+      distributedFinishTimer = null;
+    }
     results = [];
     logFileHeader = false;
     resultsBody.innerHTML = '';
@@ -1758,6 +1763,13 @@
       }
     }
 
+    const totalPairs = clientScenariosFinal.length + pcapScenarios.length;
+    const planTail = [];
+    const tailStart = Math.max(0, clientScenariosFinal.length - 3);
+    for (let i = tailStart; i < clientScenariosFinal.length; i++) {
+      planTail.push(`${i}: ${clientScenariosFinal[i]} -> ${serverScenariosFinal[i]}`);
+    }
+
     const dut = dutCheck.checked ? {
       ip: dutIpInput.value.trim(),
       authType: dutAuthType.value,
@@ -1773,6 +1785,10 @@
     document.body.classList.toggle('dut-active', Boolean(isDutValid));
 
     setRunning(true);
+    if (distributedFinishTimer) {
+      clearTimeout(distributedFinishTimer);
+      distributedFinishTimer = null;
+    }
     results = [];
     logFileHeader = false;
     resultsBody.innerHTML = '';
@@ -1793,6 +1809,10 @@
 
     // Configure agents
     addLogEntry('info', `Configuring agents: ${clientScenarios.length} client, ${serverScenarios.length} server${pcapScenarios.length ? `, ${pcapScenarios.length} PCAP` : ''} scenarios`);
+    addLogEntry('info', `Distributed pair plan: ${totalPairs} pair(s) from ${clientScenarios.length} selected client and ${serverScenarios.length} selected server scenario(s)`);
+    if (planTail.length > 0) {
+      addLogEntry('info', `Plan tail: ${planTail.join(' | ')}`);
+    }
 
     try {
       const configResult = await window.fuzzer.distributedConfigure({
@@ -1854,7 +1874,7 @@
       addLogEntry('info', `${data.role} agent finished`);
 
       if (agentsDone.client && agentsDone.server) {
-        finishDistributedRun();
+        scheduleDistributedFinish(750);
       }
     });
 
@@ -1864,22 +1884,49 @@
 
     // Trigger stepped execution — one scenario pair at a time
     try {
-      const totalPairs = clientScenariosFinal.length + pcapScenarios.length;
       addLogEntry('info', `Starting stepped distributed execution (${totalPairs} pairs)...`);
       const runResult = await window.fuzzer.distributedRunStepped({ totalPairs });
       if (runResult.error) {
         addLogEntry('error', `Run failed: ${runResult.error}`);
+      }
+      if (runResult.failures && runResult.failures.length > 0) {
+        addLogEntry('error', `Run completed with ${runResult.failures.length} controller failure(s)`);
+        for (const failure of runResult.failures.slice(0, 5)) {
+          const where = [
+            failure.pairId !== undefined ? `pair ${failure.pairId}` : null,
+            failure.role || null,
+            failure.phase || null,
+            failure.scenarioName || null,
+          ].filter(Boolean).join(' ');
+          addLogEntry('error', `${where || 'controller'}: ${failure.error || JSON.stringify(failure)}`);
+        }
+        if (runResult.failures.length > 5) {
+          addLogEntry('error', `...and ${runResult.failures.length - 5} more controller failure(s)`);
+        }
       }
     } catch (err) {
       addLogEntry('error', `Run failed: ${err.message || err}`);
     }
 
     // Stepped execution blocks until all pairs complete + /finish is sent,
-    // so both agents should already be done. Finish immediately.
-    finishDistributedRun();
+    // so both agents should already be done. Give result/debug events a short
+    // drain window before tearing down renderer listeners.
+    scheduleDistributedFinish(250);
+  }
+
+  function scheduleDistributedFinish(delayMs = 750) {
+    if (distributedFinishTimer) clearTimeout(distributedFinishTimer);
+    distributedFinishTimer = setTimeout(() => {
+      distributedFinishTimer = null;
+      finishDistributedRun();
+    }, delayMs);
   }
 
   function finishDistributedRun() {
+    if (distributedFinishTimer) {
+      clearTimeout(distributedFinishTimer);
+      distributedFinishTimer = null;
+    }
     setRunning(false);
     if (unsubPacket) { unsubPacket(); unsubPacket = null; }
     if (unsubResult) { unsubResult(); unsubResult = null; }
