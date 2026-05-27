@@ -87,6 +87,7 @@
   const http2TabBtn = document.getElementById('http2TabBtn');
   const quicTabBtn = document.getElementById('quicTabBtn');
   const tcpTabBtn = document.getElementById('tcpTabBtn');
+  const cvTabBtn = document.getElementById('cvTabBtn');
 
   // Select menu elements
   const selectMenuBtn = document.getElementById('selectMenuBtn');
@@ -136,7 +137,9 @@
   let allTcpScenarios = {};
   let tcpCategories = {};
   let rawAvailable = false;
-  let activeProtocol = 'tls'; // 'tls' | 'h2' | 'quic' | 'raw-tcp'
+  let allCvScenarios = {};
+  let cvCategories = {};
+  let activeProtocol = 'tls'; // 'tls' | 'h2' | 'quic' | 'raw-tcp' | 'cert-verify'
   let unsubPacket = null;
   let unsubResult = null;
   let unsubProgress = null;
@@ -428,6 +431,12 @@
         connectedAgents.server = true;
         appendDeployLog('server', 'done', `Agent connected at ${result.server.host}:${result.server.controlPort}${fmtCaps(result.server.capabilities)}`, 'ok');
       }
+      // cert-verify-server: deployed but no HTTP control API — show as running
+      if (result.cvServerStarted) {
+        serverAgentIp.value = result.cvServerHost || '';
+        setAgentStatus('server', 'ready');
+        appendDeployLog('server', 'done', `cert-verify-server started on ${result.cvServerHost} (TLS :${result.cvServerTlsPort}, CRL :18888, OCSP :18889)`, 'ok');
+      }
 
       if (connectedAgents.client || connectedAgents.server) {
         agentsConnected = true;
@@ -611,6 +620,7 @@
     http2TabBtn.classList.remove('active');
     quicTabBtn.classList.remove('active');
     tcpTabBtn.classList.remove('active');
+    cvTabBtn.classList.remove('active');
 
     filterScenariosBySide();
   });
@@ -622,6 +632,7 @@
     tlsTabBtn.classList.remove('active');
     quicTabBtn.classList.remove('active');
     tcpTabBtn.classList.remove('active');
+    cvTabBtn.classList.remove('active');
 
     filterScenariosBySide();
   });
@@ -633,6 +644,7 @@
     tlsTabBtn.classList.remove('active');
     http2TabBtn.classList.remove('active');
     tcpTabBtn.classList.remove('active');
+    cvTabBtn.classList.remove('active');
 
     filterScenariosBySide();
   });
@@ -644,6 +656,19 @@
     tlsTabBtn.classList.remove('active');
     http2TabBtn.classList.remove('active');
     quicTabBtn.classList.remove('active');
+    cvTabBtn.classList.remove('active');
+
+    filterScenariosBySide();
+  });
+
+  cvTabBtn.addEventListener('click', () => {
+    if (activeProtocol === 'cert-verify') return;
+    activeProtocol = 'cert-verify';
+    cvTabBtn.classList.add('active');
+    tlsTabBtn.classList.remove('active');
+    http2TabBtn.classList.remove('active');
+    quicTabBtn.classList.remove('active');
+    tcpTabBtn.classList.remove('active');
 
     filterScenariosBySide();
   });
@@ -695,6 +720,8 @@
       tcpCategories = data.tcpCategories || {};
       allTcpScenarios = data.tcpScenarios || {};
       rawAvailable = data.rawAvailable || false;
+      cvCategories = data.cvCategories || {};
+      allCvScenarios = data.cvScenarios || {};
       renderScenarios();
     } catch (err) {
       console.error('Failed to load scenarios:', err);
@@ -718,6 +745,11 @@
 
     if (activeProtocol === 'h2') {
       renderH2Scenarios(side);
+      return;
+    }
+
+    if (activeProtocol === 'cert-verify') {
+      renderCvScenarios(side);
       return;
     }
 
@@ -972,6 +1004,21 @@
     }
   }
 
+  function renderCvScenarios(side) {
+    scenariosList.innerHTML = '';
+
+    const info = document.createElement('div');
+    info.style.cssText = 'padding: 10px 12px; margin: 8px; background: #eff6ff; border: 1px solid #3b82f6; border-radius: 6px; color: #1e40af; font-size: 12px;';
+    info.innerHTML = '<strong>Cert-Verify Server Mode</strong> — Run <code>cert-verify-server.js</code> on the server machine. These scenarios configure the PKI chain and CRL/OCSP behavior presented to the firewall under test.';
+    scenariosList.appendChild(info);
+
+    for (const [cat, label] of Object.entries(cvCategories)) {
+      const items = (allCvScenarios[cat] || []).filter(s => s.side === side);
+      if (items.length === 0) continue;
+      scenariosList.appendChild(_buildProtocolCategoryGroup('cert-verify', cat, label, items));
+    }
+  }
+
   // Render all scenarios (both client and server) for distributed mode.
   // Respects activeProtocol — shows TLS or H2 scenarios depending on the active tab.
   function renderAllScenarios() {
@@ -991,6 +1038,19 @@
         const items = allQuicScenarios[cat] || [];
         if (items.length === 0) continue;
         scenariosList.appendChild(_buildQuicCategoryGroup(cat, label, items));
+      }
+      return;
+    }
+
+    if (activeProtocol === 'cert-verify') {
+      const info = document.createElement('div');
+      info.style.cssText = 'padding: 10px 12px; margin: 8px; background: #eff6ff; border: 1px solid #3b82f6; border-radius: 6px; color: #1e40af; font-size: 12px;';
+      info.innerHTML = '<strong>Cert-Verify Distributed Mode</strong> — Select server-side scenarios. The matching client scenario runs automatically on the client agent. Server agent listens on port 44300; set <em>Server Agent IP</em> to the IP the firewall uses to reach the server (embedded in CRL/OCSP URLs).';
+      scenariosList.appendChild(info);
+      for (const [cat, label] of Object.entries(cvCategories)) {
+        const items = (allCvScenarios[cat] || []).filter(s => s.side === 'server');
+        if (items.length === 0) continue;
+        scenariosList.appendChild(_buildProtocolCategoryGroup('cert-verify', cat, label, items));
       }
       return;
     }
@@ -1521,6 +1581,11 @@
   async function startFuzzing(customScenario = null) {
     if (running) return;
 
+    if (activeProtocol === 'cert-verify') {
+      addLogEntry('info', 'Cert-Verify scenarios require distributed mode — use the Distributed tab and connect agents first.');
+      return;
+    }
+
     const mode = modeSelect.value;
     const host = hostInput.value.trim();
     const port = parseInt(portInput.value, 10);
@@ -1627,7 +1692,11 @@
   runBtn.addEventListener('click', async () => {
     if (running) return;
     if (distributedMode) {
-      runDistributed();
+      if (activeProtocol === 'cert-verify') {
+        runCertVerify();
+      } else {
+        runDistributed();
+      }
     } else {
       startFuzzing();
     }
@@ -1659,6 +1728,56 @@
     // Trigger run
     runBtn.click();
   });
+
+  // Cert-verify distributed run — uses cv-agent on client machine
+  async function runCertVerify() {
+    const checkboxes = scenariosList.querySelectorAll('input[type="checkbox"]:checked');
+    const cvSelected = [];
+    for (const cb of checkboxes) cvSelected.push(cb.value);
+
+    if (cvSelected.length === 0) {
+      addLogEntry('error', 'No cert-verify scenarios selected — check some boxes first');
+      return;
+    }
+
+    const host    = hostInput.value.trim()  || 'localhost';
+    const port    = parseInt(portInput.value,    10) || 443;
+    const timeout = parseInt(timeoutInput.value, 10) || 10000;
+    const delay   = parseInt(delayInput.value,   10) || 300;
+    const totalCv = Object.values(allCvScenarios).reduce((s, a) => s + a.length, 0);
+
+    setRunning(true);
+    results = [];
+    logFileHeader = false;
+    resultsBody.innerHTML = '';
+    resultsEmpty.style.display = 'none';
+    resultsTable.style.display = 'table';
+    summaryBar.style.display = 'none';
+    progressContainer.style.display = 'flex';
+    progressBar.style.width = '0%';
+    progressText.textContent = `0 / ${totalCv}`;
+
+    unsubResult   = window.fuzzer.onResult(handleResult);
+    unsubProgress = window.fuzzer.onProgress(handleProgress);
+
+    addLogEntry('info', `Starting cert-verify run: ${cvSelected.length} selected, ${totalCv} total — target ${host}:${port}`);
+
+    try {
+      const res = await window.fuzzer.runCv({ host, port, timeout, delay, totalScenarios: totalCv });
+      if (res.error) {
+        addLogEntry('error', `CV run failed: ${res.error}`);
+      } else {
+        addLogEntry('info', `CV run complete — ${res.completed} scenarios tested`);
+      }
+    } catch (err) {
+      addLogEntry('error', `CV run error: ${err.message || err}`);
+    }
+
+    if (unsubResult)   { unsubResult();   unsubResult   = null; }
+    if (unsubProgress) { unsubProgress(); unsubProgress = null; }
+    setRunning(false);
+    showSummary();
+  }
 
   // Distributed run
   async function runDistributed() {
@@ -1721,6 +1840,7 @@
     }
 
     const helperClientForServerScenario = (scenarioName) => {
+      if (activeProtocol === 'cert-verify') return scenarioName + '-client';
       if (activeProtocol !== 'tls') return wbClient;
       const appHelper = getDistributedAppClientHelper(scenarioName);
       if (appHelper) return appHelper;
@@ -1820,8 +1940,10 @@
         serverScenarios: serverScenariosFinal.length > 0 ? serverScenariosFinal : null,
         pcapScenarios: pcapScenarios.length > 0 ? pcapScenarios : null,
         helperPairs,
-        clientConfig: { host, port, delay, timeout, workers, protocol: activeProtocol, dut, pcapFile: pcapFile || null, mergePcap: !!pcapFile, baseline: baselineCheck.checked },
-        serverConfig: { bindAddress: '0.0.0.0', hostname: host, port, delay, timeout, workers: 1, protocol: activeProtocol, dut, pcapFile: pcapFile || null, mergePcap: !!pcapFile, baseline: baselineCheck.checked },
+	clientConfig: { host, port, delay, timeout, workers, protocol: activeProtocol === 'cert-verify' ? 'tls' : activeProtocol, dut, pcapFile: pcapFile || null, mergePcap: !!pcapFile, baseline: baselineCheck.checked },
+        serverConfig: activeProtocol === 'cert-verify'
+          ? { bindAddress: '0.0.0.0', port: 44300, delay, timeout: 30000, workers: 1, protocol: 'tls', cvServerIP: serverAgentIp.value.trim() || host, crlPort: 18888, ocspPort: 18889 }
+          : { bindAddress: '0.0.0.0', hostname: host, port, delay, timeout, workers: 1, protocol: activeProtocol, dut, pcapFile: pcapFile || null, mergePcap: !!pcapFile, baseline: baselineCheck.checked },
       });
 
       if (configResult.error) {
@@ -2087,6 +2209,11 @@
     // as helper, hide that marker only; helper-looking names can also be
     // legitimate user-selected baseline scenarios and should remain visible.
     if (result.helper || result.internalHelper) {
+      return;
+    }
+    // Hide CV server-side results — server always reports PASSED (cert presented); only the
+    // client result (agentRole=client, name ending in -client) reflects firewall behavior
+    if (result.agentRole === 'server' && result.scenario && result.scenario.startsWith('cv-')) {
       return;
     }
     const meta = findScenarioMeta(result.scenario);

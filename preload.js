@@ -58,6 +58,7 @@ contextBridge.exposeInMainWorld('fuzzer', {
   },
 
   // SSH Auto-Deploy (Beta)
+  runCv: (opts) => ipcRenderer.invoke('run-cv', opts),
   distributedDeploy: (opts) => ipcRenderer.invoke('distributed-deploy', opts),
   distributedTeardown: () => ipcRenderer.invoke('distributed-teardown'),
   selectSshKey: () => ipcRenderer.invoke('select-ssh-key'),
