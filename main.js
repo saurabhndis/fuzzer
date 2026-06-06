@@ -12,6 +12,7 @@ const { listScenarios, getScenario, CATEGORY_DEFAULT_DISABLED } = require('./lib
 const { listHttp2Scenarios, getHttp2Scenario, HTTP2_CATEGORY_DEFAULT_DISABLED } = require('./lib/http2-scenarios');
 const { listQuicScenarios, getQuicScenario, QUIC_CATEGORY_DEFAULT_DISABLED } = require('./lib/quic-scenarios');
 const { listTcpScenarios, getTcpScenario, TCP_CATEGORIES, TCP_CATEGORY_SEVERITY } = require('./lib/tcp-scenarios');
+const { listCertVerifyScenarios, CV_CATEGORIES } = require('./lib/cert-verify/scenarios');
 const { isRawAvailable } = require('./lib/raw-tcp');
 const { getDistributedAppServerHelper, getDistributedAppClientHelper } = require('./lib/app-protocol-scenarios');
 
@@ -23,6 +24,8 @@ const NON_FUZZ_CATEGORIES = new Set([
   'AH', 'AM', 'AN', 'AO',
   // QUIC
   'QZ', 'QSCAN', 'QM', 'QN', 'QO',
+  // Cert-Verify (server-mode PKI scenarios, not protocol fuzzing)
+  'CV',
 ]);
 const { computeOverallGrade, gradeResult } = require('./lib/grader');
 const { computeExpected } = require('./lib/compute-expected');
@@ -196,6 +199,22 @@ ipcMain.handle('list-scenarios', () => {
     });
   }
 
+  // Cert-Verify scenarios
+  const { categories: cvCategories, scenarios: cvScenarios } = listCertVerifyScenarios();
+  const cvStripped = {};
+  for (const [cat, items] of Object.entries(cvScenarios)) {
+    cvStripped[cat] = items.map(s => ({
+      name: s.name,
+      category: s.category,
+      description: s.description,
+      side: s.side,
+      requiresRaw: false,
+      expected: s.expected,
+      expectedReason: `CRL/OCSP revocation check scenario (group: ${s.group})`,
+      fuzzed: false,
+    }));
+  }
+
   return {
     categories,
     scenarios: stripped,
@@ -209,6 +228,8 @@ ipcMain.handle('list-scenarios', () => {
     tcpCategories: TCP_CATEGORIES,
     tcpScenarios: tcpStripped,
     rawAvailable: isRawAvailable(),
+    cvCategories,
+    cvScenarios: cvStripped,
   };
 });
 
@@ -1297,6 +1318,13 @@ ipcMain.handle('distributed-connect', async (_event, opts) => {
   }
 
   await Promise.all(promises);
+
+  // Populate cvClientInfo so run-cv works whether agents were connected
+  // manually here or via auto-deploy (which sets it in distributed-deploy).
+  if (result.client && clientHost && clientPort) {
+    cvClientInfo = { host: clientHost, controlPort: parseInt(clientPort), token: clientToken || '' };
+  }
+
   return result;
 });
 
@@ -1461,12 +1489,16 @@ ipcMain.handle('distributed-disconnect', () => {
     if (deployer) deployer.teardown().catch(() => {});
   }
   Object.keys(activeDeployers).forEach(k => delete activeDeployers[k]);
+  cvClientInfo = null;
+  cvServerInfo = null;
   return { ok: true };
 });
 
 // --- SSH Auto-Deploy (Beta) ---
 
 const activeDeployers = {}; // { client: SSHDeployer, server: SSHDeployer }
+let cvClientInfo = null;  // { host, controlPort, token } — set after cert-verify deploy
+let cvServerInfo = null;  // { host, tlsPort } — set after cert-verify deploy
 
 ipcMain.handle('distributed-deploy', async (_event, opts) => {
   const { SSHDeployer } = require('./lib/ssh-deployer');
@@ -1488,11 +1520,13 @@ ipcMain.handle('distributed-deploy', async (_event, opts) => {
     switch ((protocol || '').toLowerCase()) {
       case 'h2':      caps.http2 = true; break;
       case 'raw-tcp': caps.rawTcp = true; break;
+      case 'cert-verify':  caps.tls = false; caps.http2 = false; break;
       // 'tls' and unset stick to the defaults
     }
     return Object.assign(caps, override || {});
   }
   const requiredCapabilities = capsFor(opts.protocol, opts.capabilities);
+  const isCertVerify = (opts.protocol || '').toLowerCase() === 'cert-verify';
   sendDeploy({ role: 'bundle', phase: 'plan', message: `Required capabilities: ${JSON.stringify(requiredCapabilities)}` });
 
   try {
@@ -1506,7 +1540,7 @@ ipcMain.handle('distributed-deploy', async (_event, opts) => {
 
     // Deploy to client machine
     if (opts.client && opts.client.host) {
-      const clientDeployer = new SSHDeployer({
+      const clientDeployerOpts = {
         host: opts.client.host,
         port: opts.client.sshPort || 22,
         username: opts.client.username,
@@ -1515,20 +1549,31 @@ ipcMain.handle('distributed-deploy', async (_event, opts) => {
         role: 'client',
         controlPort: opts.client.controlPort || 9200,
         requiredCapabilities,
-      });
+      };
+      if (isCertVerify) {
+        // cv-agent.js provides the HTTP control API for cert-verify client
+        clientDeployerOpts.customStartCmd =
+          'node lib/cert-verify/cv-agent.js --control-port {{controlPort}} --token {{token}}';
+      }
+      const clientDeployer = new SSHDeployer(clientDeployerOpts);
       activeDeployers.client = clientDeployer;
       clientDeployer.on('status', (data) => sendDeploy(data));
 
       deployPromises.push(
         clientDeployer.deploy(bundle)
-          .then(info => { result.client = info; })
+          .then(info => {
+            result.client = info;
+            if (isCertVerify) {
+              cvClientInfo = { host: info.host, controlPort: info.controlPort, token: info.token };
+            }
+          })
           .catch(err => { result.clientError = err.message; })
       );
     }
 
     // Deploy to server machine
     if (opts.server && opts.server.host) {
-      const serverDeployer = new SSHDeployer({
+      const serverDeployerOpts = {
         host: opts.server.host,
         port: opts.server.sshPort || 22,
         username: opts.server.username,
@@ -1537,13 +1582,32 @@ ipcMain.handle('distributed-deploy', async (_event, opts) => {
         role: 'server',
         controlPort: opts.server.controlPort || 9201,
         requiredCapabilities,
-      });
+      };
+      if (isCertVerify) {
+        // cert-verify-server.js has no HTTP control API — use custom start + skip ready check
+        const serverIp = opts.server.serverIp || opts.server.host;
+        const tlsPort  = opts.server.tlsPort  || 44300;
+        serverDeployerOpts.customStartCmd =
+          `node cert-verify-server.js --server-ip ${serverIp} --tls-port ${tlsPort} --crl-port 18888 --ocsp-port 18889 --verbose`;
+        serverDeployerOpts.skipReadyCheck = true;
+      }
+      const serverDeployer = new SSHDeployer(serverDeployerOpts);
       activeDeployers.server = serverDeployer;
       serverDeployer.on('status', (data) => sendDeploy(data));
 
       deployPromises.push(
         serverDeployer.deploy(bundle)
-          .then(info => { result.server = info; })
+          .then(info => {
+            if (isCertVerify) {
+              // cert-verify-server has no controller connection — store info separately
+              cvServerInfo = { host: opts.server.host, tlsPort: opts.server.tlsPort || 44300 };
+              result.cvServerStarted = true;
+              result.cvServerHost = opts.server.host;
+              result.cvServerTlsPort = opts.server.tlsPort || 44300;
+            } else {
+              result.server = info;
+            }
+          })
           .catch(err => { result.serverError = err.message; })
       );
     }
@@ -1607,6 +1671,87 @@ ipcMain.handle('select-ssh-key', async () => {
   });
   if (result.canceled || result.filePaths.length === 0) return null;
   return result.filePaths[0];
+});
+
+// ── Cert-Verify: run CV scenarios via cv-agent ───────────────────────────────
+
+ipcMain.handle('run-cv', async (_event, opts) => {
+  if (!cvClientInfo) {
+    return { error: 'CV client agent not deployed — click "Deploy and connect" first' };
+  }
+
+  const { host: cvHost, controlPort: cvPort, token: cvToken } = cvClientInfo;
+  const targetHost    = opts.host    || (cvServerInfo && cvServerInfo.host) || 'localhost';
+  const targetPort    = opts.port    || (cvServerInfo && cvServerInfo.tlsPort) || 44300;
+  const timeoutMs     = opts.timeout || 10000;
+  const delayMs       = opts.delay   || 300;
+  const totalScenarios = opts.totalScenarios || 0;
+
+  const send = (channel, data) => {
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send(channel, data);
+  };
+
+  return new Promise((resolve) => {
+    const qs = `host=${encodeURIComponent(targetHost)}&port=${targetPort}&timeout=${timeoutMs}&delay=${delayMs}`;
+    const reqOpts = {
+      hostname: cvHost,
+      port:     cvPort,
+      path:     `/run-cv?${qs}`,
+      method:   'GET',
+      headers:  { Authorization: `Bearer ${cvToken}` },
+    };
+
+    const http = require('http');
+    let completed = 0;
+
+    const req = http.request(reqOpts, (res) => {
+      if (res.statusCode === 409) {
+        return resolve({ error: 'CV agent is already running a test — wait for it to finish' });
+      }
+      if (res.statusCode !== 200) {
+        return resolve({ error: `CV agent returned HTTP ${res.statusCode}` });
+      }
+
+      let buf = '';
+      res.on('data', chunk => {
+        buf += chunk.toString();
+        const lines = buf.split('\n');
+        buf = lines.pop();
+        for (const line of lines) {
+          if (!line.trim()) continue;
+          try {
+            const item = JSON.parse(line);
+            completed++;
+            // Map cv-agent terms to WireStrike result terms
+            const status   = item.actual === 'ALLOWED' ? 'PASSED' : 'DROPPED';
+            const expectedNorm = item.expected === 'PASSED' ? 'ALLOWED' : 'BLOCKED';
+            const pass     = item.actual === expectedNorm;
+            send('fuzzer-result', {
+              scenario:  item.name,
+              status,
+              response:  item.error || (item.actual === 'ALLOWED' ? 'TLS handshake completed' : 'Connection rejected by firewall'),
+              agentRole: 'client',
+              verdict:   pass ? 'AS EXPECTED' : 'UNEXPECTED',
+            });
+            if (totalScenarios > 0) {
+              send('fuzzer-progress', {
+                current:   completed,
+                total:     totalScenarios,
+                scenario:  item.name,
+                agentRole: 'client',
+              });
+            }
+          } catch (_) {}
+        }
+      });
+      res.on('end', () => resolve({ ok: true, completed }));
+      res.on('error', (err) => resolve({ error: err.message }));
+    });
+
+    req.on('error', (err) => resolve({ error: `Cannot reach CV agent: ${err.message}` }));
+    req.on('timeout', () => { req.destroy(); resolve({ error: 'CV agent request timed out' }); });
+    req.end();
+  });
 });
 
 // ═══════════════════════════════════════════════════════════════════════════════
