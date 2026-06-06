@@ -121,3 +121,101 @@ Deferred to a future phase (design doc `plans/cross-peer-sync.md` retains the pl
 - [x] Fixed NAT-split streams in PCAP ingestion (`--ingest-pcap`).
 - [x] Added distributed mode for PCAP-ingested scenarios.
 - [x] Added PCAP test category with full lifecycle management.
+
+## Completed — TCP Reassembly for PCAP Ingestion (2026-06-06)
+
+PCAP ingestion used to do `Buffer.concat(stream.packets.filter(dir).map(payload))` at
+every parse site — packets were concatenated in capture-arrival order with no TCP
+layer.  Retransmits, partial overlaps, and out-of-order delivery silently corrupted
+TLS parsing.
+
+Goal: sequence-number-aware reassembly so each unique byte appears exactly once in
+both the parsed stream (used to extract handshake messages) and the replay (used to
+emit `send` actions).  No mimicking of captured retransmits — duplicating bytes at
+the Node socket layer becomes new TCP sequence numbers and breaks the DUT's TLS
+parser.
+
+- [x] `lib/pcap-parser.js:readPcap` — extract TCP `seq` (offset +4 in TCP header),
+      store on each packet alongside `tcpFlags`.
+- [x] `lib/pcap-parser.js` — add `reassembleTcpStream(packets, direction)` returning
+      `{ reassembled, retransmits, partialOverlaps, gaps, segmentCount }`. Sort by
+      `(seq - base) | 0` for 32-bit wrap safety; drop fully-covered segments; trim
+      partial-overlap tails on the left; report gaps.  SYN/FIN flags consume one
+      seq number each in the cursor math so they don't get reported as 1-byte data
+      gaps.
+- [x] `lib/pcap-parser.js:groupStreams` — Pass 3 after NAT merge attaches `c2sFull`
+      / `s2cFull` and `c2sReassembly` / `s2cReassembly` to each stream.  UDP falls
+      back to arrival-order concat (no seq numbers to use).
+- [x] Replaced all `Buffer.concat(stream.packets.filter(dir).map(payload))` sites:
+      `analyzeFullHandshake`, `buildHandshakeAnalysis`, `extractPostHandshakeActions`,
+      `findPartnerStream` (one-sided concat → non-empty direction's reassembly),
+      `parsePcapToScenario` (clientAbortedBeforeCKE check), `analyzeStream`.
+- [x] `lib/pcap-parser.js:generateReplayScenario` — walks packets in arrival order
+      but tracks a per-direction `dirCursor` so retransmits drop and partial
+      overlaps trim.  Direction-change semantics preserved for raw HTTP-style
+      replays.
+- [x] `pcapParams.reassembly` records per-direction `{ bytes, segments, retransmits,
+      partialOverlaps, gapCount, gapBytes }` so saved scenarios show whether dedup
+      fired.  `--list-streams` shows a yellow `[N retransmits, M gaps]` tag only
+      when non-zero (clean captures stay quiet).
+- [x] Verified: 12-case unit test covering clean / full-retransmit / partial-overlap
+      / gap / FIN / out-of-order delivery all pass.  Live `--ingest-pcap` on
+      `dist-tls-wb.pcap` (stream 5) shows zero retransmits / zero gaps and a
+      runnable scenario.  Pre-existing off-by-one in `lib/pcap-writer.js` that
+      added a stray +1 to seq on a non-flag packet surfaces as a real `[2 gaps]`
+      tag on the raw-tcp stream — caught by the new reassembler.
+
+Files: `lib/pcap-parser.js` (+~230 lines, removed ~12 lines of duplicated concat).
+
+Pre-existing bug surfaced for future cleanup:
+  - `lib/pcap-writer.js` seq tracking applies a +1 somewhere it shouldn't, causing
+    the writer's own PCAPs to have 1-byte gaps in each direction on the raw-tcp
+    `[0]` stream of `dist-tls-wb.pcap`.  Not in scope here; the new reassembler
+    correctly detects and reports it.
+
+## Completed — PCAP Test Cases as Committable .js Files (2026-06-06)
+
+Saved PCAP tests used to live as `pcap-tests/<name>.json` — opaque blob, not editable
+in source control, no way for a user to write a test case by hand and commit it.
+Replaced with `pcap-test-cases/<name>.js` — one self-contained Node.js module per
+test, with all captured Buffers as inline `Buffer.from('hex', 'hex')` literals.
+
+Goal: each ingested PCAP produces a standalone, diff-friendly, commit-ready test file.
+A user can read it, edit it, write their own from scratch, or delete it.  No companion
+fixtures, no cross-file dependencies between tests.
+
+- [x] `lib/pcap-code-gen.js` (new) — `generateScenarioSource(scenario, opts)` walks a
+      scenario object and emits valid Node.js.  Buffers → `Buffer.from('hex', 'hex')`,
+      strings via `JSON.stringify`, plain objects with bare-identifier keys when
+      safe, action closures resolved to concrete arrays before serialization.
+- [x] `lib/pcap-test-cases.js` (new, replaces `lib/pcap-scenarios.js`) — loader for
+      `pcap-test-cases/*.js`.  No pending/verified lifecycle — if the file's there,
+      it's saved.  `require.cache` is invalidated on every load so in-place edits
+      take effect on the next list/run.  API matches the old `pcap-scenarios.js`
+      surface so `lib/scenarios.js` integration was a one-line require change.
+- [x] `lib/scenarios.js` — `PCAP_CATEGORY` (`'PCAP'`) → `PCAP_CATEGORY` constant
+      (`'PCAP-CASE'`) imported from the new module.  Category display label
+      `'PCAP Test Cases'`.  Still in `CATEGORY_DEFAULT_DISABLED` so saved tests
+      are opt-in via `--category PCAP-CASE` or `--scenario <name>`.
+- [x] `cli.js` — added `promptName(default)` that uses readline only when stdin is
+      a TTY (CI/non-interactive runs keep the auto-name path).  `--ingest-pcap`
+      save call switched to `saveTestCase`.  Command renames:
+      - `pcap-tests` → `pcap-test-cases` (alias kept for one cycle)
+      - `delete-pcap-test` → `delete-pcap-test-case` (alias kept)
+      - `verify-pcap-test` removed (no lifecycle in code form — commit *is* verify)
+      - `migrate-pcap-tests` added (one-shot legacy JSON → .js conversion)
+- [x] `main.js` + `renderer/app.js` — IPC `save-pcap-test` handler points at the
+      new code-gen path.  Toast updated to mention the generated .js file path.
+      Renderer category-id strings `'PCAP'` → `'PCAP-CASE'` (two callsites).
+- [x] `lib/pcap-scenarios.js` removed.
+- [x] Verified end-to-end: `--ingest-pcap dist-tls-wb.pcap --pcap-stream 5 --pcap-name
+      my-test-case-1` produces a 6.1KB / 184-line .js file that loads via `require()`,
+      registers under `PCAP-CASE`, and runs via `--scenario my-test-case-1`.
+      Migration of 8 legacy JSON tests all converted cleanly.
+
+Files: `lib/pcap-code-gen.js` (+170), `lib/pcap-test-cases.js` (+200), `lib/scenarios.js`
+(small edits), `cli.js` (~+100 −60), `main.js` (~+10 −20), `renderer/app.js`
+(toast + two id strings).  `lib/pcap-scenarios.js` removed.
+
+Legacy `pcap-tests/` directory left in place after migration so users can review the
+generated `.js` files before deleting the JSON.

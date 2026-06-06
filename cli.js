@@ -21,13 +21,13 @@ const USAGE = `
     node cli.js client <host> <port> [options]
     node cli.js server <port> [options]
     node cli.js list
-    node cli.js pcap-tests                    List saved PCAP-based tests
-    node cli.js verify-pcap-test <name>       Mark a PCAP test as verified
-    node cli.js delete-pcap-test <name>       Delete a PCAP test
+    node cli.js pcap-test-cases               List saved PCAP test cases
+    node cli.js delete-pcap-test-case <name>  Delete a PCAP test case
+    node cli.js migrate-pcap-tests            Convert legacy pcap-tests/*.json to pcap-test-cases/*.js
 
   Options:
-    --scenario <name|all>   Run specific scenario or all
-    --category <A-Y|PCAP>   Run all scenarios in a category (PCAP = pcap-based tests)
+    --scenario <name|all>        Run specific scenario or all
+    --category <A-Y|PCAP-CASE>   Run all scenarios in a category (PCAP-CASE = saved test cases)
     --hostname <name>       Server cert CN/SAN (default: localhost)
     --delay <ms>            Delay between actions (default: 100)
     --timeout <ms>          Connection timeout (default: 5000)
@@ -39,7 +39,7 @@ const USAGE = `
     --ingest-pcap <file>    Ingest PCAP, save as test, and run it
     --pcap-stream <index>   Select a specific stream from the PCAP (default: 0)
     --list-streams          List all streams found in the PCAP
-    --pcap-name <name>      Custom name for the saved PCAP test
+    --pcap-name <name>      Test name for the saved .js file (prompts in TTY if omitted)
     --no-save               Don't save the ingested PCAP test (run only)
     --distributed           Run ingested PCAP scenario in distributed mode (requires agents)
     --client-agent <h:p>    Client agent host:port for distributed mode (default: localhost:9200)
@@ -48,10 +48,11 @@ const USAGE = `
 
   PCAP Test Workflow:
     1. Ingest:  node cli.js client host 443 --ingest-pcap capture.pcap
-    2. List:    node cli.js pcap-tests
-    3. Run:     node cli.js client host 443 --scenario pcap-tls-session-0
-    4. Verify:  node cli.js verify-pcap-test pcap-tls-session-0
-    5. Run all: node cli.js client host 443 --category PCAP
+                (Names the test; saves pcap-test-cases/<name>.js — a self-contained
+                Node.js scenario you can read, edit, diff, and commit.)
+    2. List:    node cli.js pcap-test-cases
+    3. Run:     node cli.js client host 443 --scenario <name>
+    4. Run all: node cli.js client host 443 --category PCAP-CASE
 
   Examples:
     node cli.js list
@@ -87,6 +88,26 @@ function parseArgs(argv) {
   }
 
   return args;
+}
+
+/**
+ * Prompt the user for a test name with `defaultValue` pre-filled. Returns
+ * the trimmed reply, or `defaultValue` on empty input. Only call when
+ * `process.stdin.isTTY` — readline will hang non-interactively.
+ */
+function promptName(defaultValue) {
+  return new Promise((resolve) => {
+    const readline = require('readline');
+    const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+    rl.question(
+      `\x1b[36m  Test name [\x1b[0m\x1b[90m${defaultValue}\x1b[0m\x1b[36m]: \x1b[0m`,
+      (answer) => {
+        rl.close();
+        const trimmed = (answer || '').trim();
+        resolve(trimmed.length > 0 ? trimmed : defaultValue);
+      }
+    );
+  });
 }
 
 async function main() {
@@ -151,79 +172,97 @@ async function main() {
     process.exit(0);
   }
 
-  // ─── PCAP Test Management Commands ──────────────────────────────────────
-  if (command === 'pcap-tests') {
-    const { listPcapTests, PCAP_TESTS_DIR } = require('./lib/pcap-scenarios');
-    const tests = listPcapTests({ includePending: true });
-    console.log(`\n  PCAP-Based Tests (${tests.length} saved in ${PCAP_TESTS_DIR})\n`);
+  // ─── PCAP Test Case Management Commands ─────────────────────────────────
+  if (command === 'pcap-test-cases' || command === 'pcap-tests') {
+    // `pcap-tests` is accepted as a back-compat alias for one release cycle.
+    if (command === 'pcap-tests') {
+      console.error('\x1b[33m  Note: "pcap-tests" is deprecated; use "pcap-test-cases" instead.\x1b[0m');
+    }
+    const { listAllTestCases, PCAP_TEST_CASES_DIR } = require('./lib/pcap-test-cases');
+    const tests = listAllTestCases();
+    console.log(`\n  PCAP Test Cases (${tests.length} saved in ${PCAP_TEST_CASES_DIR})\n`);
     if (tests.length === 0) {
-      console.log('  No PCAP tests saved yet.');
+      console.log('  No PCAP test cases saved yet.');
       console.log('  Use: node cli.js client <host> <port> --ingest-pcap <file.pcap>\n');
     } else {
+      const fs = require('fs');
       for (const t of tests) {
-        const statusColor = t.meta.status === 'verified' ? '\x1b[32m' : '\x1b[33m';
-        const statusTag = `${statusColor}[${t.meta.status}]\x1b[0m`;
         const natTag = t.scenario.pcapParams?.natMerged ? ' \x1b[33m[NAT]\x1b[0m' : '';
-        console.log(`  ${statusTag} ${t.name}${natTag}`);
-        console.log(`    ${t.meta.description}`);
-        console.log(`    Created: ${t.meta.createdAt}${t.meta.verifiedAt ? ` | Verified: ${t.meta.verifiedAt}` : ''}`);
-        if (t.meta.sourceFile) console.log(`    Source: ${t.meta.sourceFile} (stream ${t.meta.streamIndex})`);
+        const re = t.scenario.pcapParams?.reassembly;
+        const reTotal = re ? (re.c2s.retransmits + re.s2c.retransmits + re.c2s.partialOverlaps + re.s2c.partialOverlaps) : 0;
+        const reTag = reTotal > 0 ? ` \x1b[33m[${reTotal} retransmit${reTotal === 1 ? '' : 's'}]\x1b[0m` : '';
+        const stats = fs.statSync(t.filePath);
+        console.log(`  \x1b[36m${t.name}\x1b[0m${natTag}${reTag}`);
+        if (t.scenario.description) console.log(`    ${t.scenario.description}`);
+        console.log(`    File: ${t.filePath} (${stats.size} bytes)`);
+        console.log(`    Modified: ${stats.mtime.toISOString()}`);
         console.log('');
       }
-      const pending = tests.filter(t => t.meta.status === 'pending').length;
-      const verified = tests.filter(t => t.meta.status === 'verified').length;
-      console.log(`  Summary: ${verified} verified, ${pending} pending`);
-      if (pending > 0) {
-        console.log(`  To verify: node cli.js verify-pcap-test <name>`);
-      }
       console.log(`  To run:    node cli.js client <host> <port> --scenario <name>`);
-      console.log(`  To run all: node cli.js client <host> <port> --category PCAP\n`);
+      console.log(`  To run all: node cli.js client <host> <port> --category PCAP-CASE`);
+      console.log(`  To edit:   open the .js file directly — it's a normal Node.js module.\n`);
     }
     process.exit(0);
   }
 
-  if (command === 'verify-pcap-test') {
+  if (command === 'delete-pcap-test-case' || command === 'delete-pcap-test') {
+    if (command === 'delete-pcap-test') {
+      console.error('\x1b[33m  Note: "delete-pcap-test" is deprecated; use "delete-pcap-test-case" instead.\x1b[0m');
+    }
     const testName = args._[1];
     if (!testName) {
-      console.error('Usage: node cli.js verify-pcap-test <name>');
+      console.error('Usage: node cli.js delete-pcap-test-case <name>');
       process.exit(1);
     }
-    const { verifyPcapTest, getPcapTestInfo } = require('./lib/pcap-scenarios');
-    const info = getPcapTestInfo(testName);
-    if (!info) {
-      console.error(`PCAP test not found: ${testName}`);
-      console.error('Use: node cli.js pcap-tests  to list available tests');
+    const { deletePcapTestCase } = require('./lib/pcap-test-cases');
+    const ok = deletePcapTestCase(testName);
+    if (ok) {
+      console.log(`\x1b[32m  ✓ Test case "${testName}" deleted.\x1b[0m`);
+    } else {
+      console.error(`  Test case "${testName}" not found.`);
       process.exit(1);
     }
-    if (info.status === 'verified') {
-      console.log(`\x1b[33m  Test "${testName}" is already verified.\x1b[0m`);
+    process.exit(0);
+  }
+
+  if (command === 'migrate-pcap-tests') {
+    const fs = require('fs');
+    const path = require('path');
+    const legacyDir = path.join(__dirname, 'pcap-tests');
+    if (!fs.existsSync(legacyDir)) {
+      console.log('  No legacy pcap-tests/ directory found — nothing to migrate.\n');
       process.exit(0);
     }
-    const ok = verifyPcapTest(testName);
-    if (ok) {
-      console.log(`\x1b[32m  ✓ Test "${testName}" marked as verified.\x1b[0m`);
-      console.log(`  It will now appear in --category PCAP and --scenario all.`);
-    } else {
-      console.error(`  Failed to verify test "${testName}".`);
-      process.exit(1);
+    const { deserializePcapScenario } = require('./lib/pcap-parser');
+    const { saveTestCase, PCAP_TEST_CASES_DIR } = require('./lib/pcap-test-cases');
+    const files = fs.readdirSync(legacyDir).filter(f => f.endsWith('.json'));
+    if (files.length === 0) {
+      console.log('  pcap-tests/ is empty — nothing to migrate.\n');
+      process.exit(0);
     }
-    process.exit(0);
-  }
-
-  if (command === 'delete-pcap-test') {
-    const testName = args._[1];
-    if (!testName) {
-      console.error('Usage: node cli.js delete-pcap-test <name>');
-      process.exit(1);
+    console.log(`\n  Migrating ${files.length} legacy test(s) → ${PCAP_TEST_CASES_DIR}\n`);
+    let ok = 0, failed = 0;
+    for (const file of files) {
+      const name = file.replace(/\.json$/, '');
+      try {
+        const raw = JSON.parse(fs.readFileSync(path.join(legacyDir, file), 'utf8'));
+        const scenario = deserializePcapScenario(raw.scenario);
+        const saved = saveTestCase(scenario, {
+          hostname: 'localhost',
+          sourceFile: raw.meta?.sourceFile,
+          streamIndex: raw.meta?.streamIndex,
+          name,
+          overwrite: false,
+        });
+        console.log(`  \x1b[32m✓\x1b[0m ${name} → ${saved.filePath}`);
+        ok++;
+      } catch (err) {
+        console.log(`  \x1b[31m✗\x1b[0m ${name}: ${err.message}`);
+        failed++;
+      }
     }
-    const { deletePcapTest } = require('./lib/pcap-scenarios');
-    const ok = deletePcapTest(testName);
-    if (ok) {
-      console.log(`\x1b[32m  ✓ Test "${testName}" deleted.\x1b[0m`);
-    } else {
-      console.error(`  Test "${testName}" not found.`);
-      process.exit(1);
-    }
+    console.log(`\n  Migrated: ${ok}    Failed: ${failed}`);
+    console.log(`  Legacy pcap-tests/ left in place; delete it manually after reviewing the .js files.\n`);
     process.exit(0);
   }
 
@@ -282,17 +321,24 @@ async function main() {
 
         // ── Auto-save the PCAP test (unless --no-save) ─────────────────
         if (!args['no-save']) {
-          const { savePcapTest } = require('./lib/pcap-scenarios');
-          const saved = savePcapTest(scenario, {
+          const { saveTestCase } = require('./lib/pcap-test-cases');
+          let chosenName = args['pcap-name'];
+          if (!chosenName && process.stdin.isTTY) {
+            // Interactive prompt: pre-fill with the auto-name and let the
+            // user accept or replace it. Non-TTY runs (CI, scripts) skip
+            // this and fall back to the auto-name.
+            chosenName = await promptName(scenario.name);
+          }
+          if (!chosenName) chosenName = scenario.name;
+          const saved = saveTestCase(scenario, {
             hostname: host,
             sourceFile: args['ingest-pcap'],
             streamIndex: streamIdx,
-            name: args['pcap-name'] || scenario.name,
+            name: chosenName,
           });
-          console.log(`\x1b[36m  Saved PCAP test: ${saved.name}\x1b[0m`);
+          console.log(`\x1b[36m  Saved PCAP test case: ${saved.name}\x1b[0m`);
           console.log(`\x1b[90m  File: ${saved.filePath}\x1b[0m`);
-          console.log(`\x1b[90m  Status: pending (run and verify to add to suite permanently)\x1b[0m`);
-          console.log(`\x1b[90m  Verify: node cli.js verify-pcap-test ${saved.name}\x1b[0m\n`);
+          console.log(`\x1b[90m  Review the .js file and commit it when you're ready.\x1b[0m\n`);
         }
 
         // ── Distributed mode: serialize and push to remote agents ──────

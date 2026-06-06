@@ -826,7 +826,7 @@
         item.appendChild(sideTag);
 
         // Add delete button for PCAP scenarios
-        if (cat === 'PCAP') {
+        if (cat === 'PCAP-CASE') {
           const delBtn = document.createElement('button');
           delBtn.className = 'btn-tiny pcap-delete-btn';
           delBtn.textContent = '\u2715';
@@ -1535,7 +1535,7 @@
     };
     const saveResult = await window.fuzzer.savePcapTest(saveData);
     if (saveResult && saveResult.ok) {
-      addLogEntry('info', `Test saved: ${saveResult.name} — now available under TLS > PCAP Ingested Tests`);
+      addLogEntry('info', `Test case saved: ${saveResult.name} → ${saveResult.filePath || 'pcap-test-cases/'} (self-contained .js — edit and commit when ready)`);
       pcapSaveTestBtn.textContent = '\u2713 Saved';
       pcapSaveTestBtn.disabled = true;
       // Refresh scenario list so the new test appears immediately
@@ -1792,7 +1792,7 @@
     const serverScenarios = [];
     const pcapScenarios = [];
     for (const cb of checkboxes) {
-      if (cb.dataset.category === 'PCAP') {
+      if (cb.dataset.category === 'PCAP-CASE') {
         pcapScenarios.push(cb.value);
       } else if (cb.dataset.side === 'client') {
         clientScenarios.push(cb.value);

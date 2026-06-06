@@ -1075,17 +1075,16 @@ ${(scenario.serverActions || []).map(a => {
   }
 });
 
-// Save PCAP test to the pcap-tests/ directory
+// Save PCAP test as a self-contained .js file in pcap-test-cases/.
+// The scenario arrives from the renderer with pre-evaluated action arrays
+// (Electron can't IPC-transfer closures), so we wrap it into the standard
+// scenario shape before handing off to the code generator.
 ipcMain.handle('save-pcap-test', async (event, scenario) => {
   try {
-    const { savePcapTest } = require('./lib/pcap-scenarios');
-    const { serializePcapScenario, deserializePcapScenario } = require('./lib/pcap-parser');
-
-    // The scenario comes from the renderer with pre-evaluated actions.
-    // We need to wrap it into a proper scenario object for serialization.
-    const wrappedScenario = {
+    const { saveTestCase, PCAP_CATEGORY } = require('./lib/pcap-test-cases');
+    const wrapped = {
       name: scenario.name,
-      category: scenario.category || 'PCAP',
+      category: scenario.category || PCAP_CATEGORY,
       description: scenario.description,
       side: scenario.side || 'client',
       protocol: scenario.protocol || 'tls',
@@ -1093,15 +1092,17 @@ ipcMain.handle('save-pcap-test', async (event, scenario) => {
       expected: scenario.expected || 'PASSED',
       expectedReason: scenario.expectedReason || 'PCAP session recreation',
       pcapParams: scenario.pcapParams || {},
-      actions: () => scenario.actions || [],
-      serverActions: () => scenario.serverActions || [],
+      // Pass arrays directly; the code-gen module accepts either closures or
+      // arrays in the actions/serverActions slots.
+      actions: scenario.actions || [],
+      serverActions: scenario.serverActions || [],
     };
-
-    const saved = savePcapTest(wrappedScenario, {
+    const saved = saveTestCase(wrapped, {
       hostname: 'localhost',
+      sourceFile: scenario.sourceFile || null,
+      streamIndex: scenario.streamIndex !== undefined ? scenario.streamIndex : null,
       name: scenario.name,
     });
-
     return { ok: true, name: saved.name, filePath: saved.filePath };
   } catch (err) {
     return { ok: false, error: err.message };
@@ -1110,8 +1111,8 @@ ipcMain.handle('save-pcap-test', async (event, scenario) => {
 
 ipcMain.handle('delete-pcap-test', async (event, name) => {
   try {
-    const { deletePcapTest } = require('./lib/pcap-scenarios');
-    const ok = deletePcapTest(name);
+    const { deletePcapTestCase } = require('./lib/pcap-test-cases');
+    const ok = deletePcapTestCase(name);
     return { ok };
   } catch (err) {
     return { ok: false, error: err.message };
@@ -1363,28 +1364,18 @@ ipcMain.handle('distributed-configure', async (_event, opts) => {
     let serverPcapScenarios = undefined;
 
     if (pcapScenarios && pcapScenarios.length > 0) {
-      const { loadPcapTest } = require('./lib/pcap-scenarios');
+      const { loadTestCase } = require('./lib/pcap-test-cases');
       const { serializePcapScenario } = require('./lib/pcap-parser');
-      
+
       clientPcapScenarios = [];
       serverPcapScenarios = [];
-      
+
       for (const name of pcapScenarios) {
-        const loaded = loadPcapTest(name);
-        if (loaded && loaded.scenario) {
-          const serialized = serializePcapScenario(loaded.scenario, { hostname: clientConfig.host });
-          
-          clientPcapScenarios.push({
-            ...serialized,
-            name: serialized.name + '-client',
-            side: 'client'
-          });
-          
-          serverPcapScenarios.push({
-            ...serialized,
-            name: serialized.name + '-server',
-            side: 'server'
-          });
+        const scenario = loadTestCase(name);
+        if (scenario) {
+          const serialized = serializePcapScenario(scenario, { hostname: clientConfig.host });
+          clientPcapScenarios.push({ ...serialized, name: serialized.name + '-client', side: 'client' });
+          serverPcapScenarios.push({ ...serialized, name: serialized.name + '-server', side: 'server' });
         }
       }
     }
