@@ -12,6 +12,7 @@ tls-verify-results.json
 *.swp
 cert.pem
 key.pem
+*.keylog
 
 # Local notes, plans, generated reports, and standalone test scripts
 must-fix.md
