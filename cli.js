@@ -95,6 +95,17 @@ function parseArgs(argv) {
  * the trimmed reply, or `defaultValue` on empty input. Only call when
  * `process.stdin.isTTY` — readline will hang non-interactively.
  */
+function promptYesNo(question) {
+  return new Promise((resolve) => {
+    const readline = require('readline');
+    const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+    rl.question(`\x1b[36m  ${question}\x1b[0m`, (answer) => {
+      rl.close();
+      resolve(/^y(es)?$/i.test((answer || '').trim()));
+    });
+  });
+}
+
 function promptName(defaultValue) {
   return new Promise((resolve) => {
     const readline = require('readline');
@@ -319,26 +330,31 @@ async function main() {
         console.log(`\x1b[32m  Ingested scenario from PCAP: ${scenario.description}\x1b[0m`);
         console.log(`\x1b[90m  Explanation: ${scenario.explanation}\x1b[0m\n`);
 
-        // ── Auto-save the PCAP test (unless --no-save) ─────────────────
+        // ── Save the PCAP test (unless --no-save) ─────────────────────
         if (!args['no-save']) {
-          const { saveTestCase } = require('./lib/pcap-test-cases');
-          let chosenName = args['pcap-name'];
-          if (!chosenName && process.stdin.isTTY) {
-            // Interactive prompt: pre-fill with the auto-name and let the
-            // user accept or replace it. Non-TTY runs (CI, scripts) skip
-            // this and fall back to the auto-name.
-            chosenName = await promptName(scenario.name);
+          let shouldSave = !process.stdin.isTTY; // non-TTY: auto-save for backwards compat
+          if (process.stdin.isTTY) {
+            shouldSave = await promptYesNo('Save this ingestion as a reusable test case that can be committed to source? (y/N): ');
           }
-          if (!chosenName) chosenName = scenario.name;
-          const saved = saveTestCase(scenario, {
-            hostname: host,
-            sourceFile: args['ingest-pcap'],
-            streamIndex: streamIdx,
-            name: chosenName,
-          });
-          console.log(`\x1b[36m  Saved PCAP test case: ${saved.name}\x1b[0m`);
-          console.log(`\x1b[90m  File: ${saved.filePath}\x1b[0m`);
-          console.log(`\x1b[90m  Review the .js file and commit it when you're ready.\x1b[0m\n`);
+          if (shouldSave) {
+            const { saveTestCase } = require('./lib/pcap-test-cases');
+            let chosenName = args['pcap-name'];
+            if (!chosenName && process.stdin.isTTY) {
+              chosenName = await promptName(scenario.name);
+            }
+            if (!chosenName) chosenName = scenario.name;
+            const saved = saveTestCase(scenario, {
+              hostname: host,
+              sourceFile: args['ingest-pcap'],
+              streamIndex: streamIdx,
+              name: chosenName,
+            });
+            console.log(`\x1b[36m  Saved PCAP test case: ${saved.name}\x1b[0m`);
+            console.log(`\x1b[90m  File: ${saved.filePath}\x1b[0m`);
+            console.log(`\x1b[90m  Review the .js file and commit it when you're ready.\x1b[0m\n`);
+          } else {
+            console.log(`\x1b[90m  Skipped saving test case.\x1b[0m\n`);
+          }
         }
 
         // ── Distributed mode: serialize and push to remote agents ──────

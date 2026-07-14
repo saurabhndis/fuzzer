@@ -1512,8 +1512,22 @@
     pcapStreamOverlay.style.display = 'flex';
   });
 
-  // Save PCAP test to suite (independent of run)
-  pcapSaveTestBtn.addEventListener('click', async () => {
+  // Save PCAP test to suite — show confirmation dialog first
+  const pcapSaveConfirmOverlay = document.getElementById('pcapSaveConfirmOverlay');
+  const pcapSaveConfirmYes = document.getElementById('pcapSaveConfirmYes');
+  const pcapSaveConfirmNo = document.getElementById('pcapSaveConfirmNo');
+
+  pcapSaveTestBtn.addEventListener('click', () => {
+    if (!currentPcapScenario) return;
+    pcapSaveConfirmOverlay.style.display = 'flex';
+  });
+
+  pcapSaveConfirmNo.addEventListener('click', () => {
+    pcapSaveConfirmOverlay.style.display = 'none';
+  });
+
+  pcapSaveConfirmYes.addEventListener('click', async () => {
+    pcapSaveConfirmOverlay.style.display = 'none';
     if (!currentPcapScenario) return;
     currentPcapScenario.name = pcapScenarioName.value.trim();
     currentPcapScenario.description = pcapScenarioDesc.value.trim();
@@ -1538,7 +1552,6 @@
       addLogEntry('info', `Test case saved: ${saveResult.name} → ${saveResult.filePath || 'pcap-test-cases/'} (self-contained .js — edit and commit when ready)`);
       pcapSaveTestBtn.textContent = '\u2713 Saved';
       pcapSaveTestBtn.disabled = true;
-      // Refresh scenario list so the new test appears immediately
       await loadScenarios();
     } else {
       addLogEntry('error', `Failed to save test: ${saveResult ? saveResult.error : 'unknown error'}`);

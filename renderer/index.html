@@ -334,6 +334,27 @@
     </div>
   </div>
 
+  <!-- PCAP Save Confirmation Dialog -->
+  <div id="pcapSaveConfirmOverlay" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.45); z-index:10002; align-items:center; justify-content:center;">
+    <div style="background:var(--bg-secondary); border:1px solid var(--border); border-radius:12px; width:90%; max-width:460px; box-shadow:0 15px 40px rgba(0,0,0,0.2);">
+      <div style="padding:16px 20px; border-bottom:1px solid var(--border);">
+        <h3 style="margin:0; font-size:16px; font-weight:600; color:var(--primary);">Save as Reusable Test Case?</h3>
+      </div>
+      <div style="padding:20px;">
+        <p style="margin:0 0 12px; font-size:13px; color:var(--text-primary); line-height:1.5;">
+          This will create a <strong>.js</strong> file in <code style="background:var(--bg-tertiary); padding:2px 5px; border-radius:3px; font-size:12px;">pcap-test-cases/</code> that can be committed to source control.
+        </p>
+        <p style="margin:0; font-size:13px; color:var(--text-muted); line-height:1.5;">
+          Other users will be able to run this test case from the scenario list. Choose <strong>No</strong> if you only want to run the test without saving it.
+        </p>
+      </div>
+      <div style="padding:16px 20px; border-top:1px solid var(--border); display:flex; gap:10px; justify-content:flex-end;">
+        <button id="pcapSaveConfirmNo" class="btn" style="min-width:80px; background:var(--bg-tertiary); color:var(--text-primary); border:1px solid var(--border);">No</button>
+        <button id="pcapSaveConfirmYes" class="btn btn-run" style="min-width:160px;">Yes, Save Test Case</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Firewall Log Modal -->
   <div id="fwModalOverlay" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.3); z-index:9999; align-items:center; justify-content:center;">
     <div style="background:var(--bg-secondary); border:1px solid var(--border); border-radius:12px; width:80%; max-width:800px; max-height:80vh; display:flex; flex-direction:column; box-shadow:0 10px 30px rgba(0,0,0,0.12);">
