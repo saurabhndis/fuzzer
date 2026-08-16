@@ -219,3 +219,247 @@ Files: `lib/pcap-code-gen.js` (+170), `lib/pcap-test-cases.js` (+200), `lib/scen
 
 Legacy `pcap-tests/` directory left in place after migration so users can review the
 generated `.js` files before deleting the JSON.
+
+---
+
+## Run History + Comparison Feature
+
+Persist the last 10 outcomes of each suite's test execution and let the user
+diff any two runs of the same suite. Plan: `~/.claude/plans/proud-conjuring-dahl.md`.
+
+- [x] `lib/run-history.js` — `saveRun` / `listRuns` / `loadRun` / `setTag`, one
+      JSON file per run under `<userData>/run-history/<protocol>/`, pruned to 10
+- [x] `lib/run-compare.js` — `compareRuns(prev, curr)` with per-scenario dedupe
+      (worst occurrence wins) and match / regressed / improved / status-changed /
+      new / removed classification
+- [x] `test-run-history.js` — 12 unit tests: retention, ordering, tagging,
+      corrupt-file skip, unknown-protocol guard, all classifications, dedupe
+- [x] `main.js` — 5 IPC handlers (`history-save|list|load|tag|compare`) with
+      protocol/UUID validation before any filesystem access
+- [x] `preload.js` — 5 `window.fuzzer` aliases
+- [x] `renderer/app.js` — capture hook at the end of `showSummary()` (the one
+      completion path shared by local, distributed and cert-verify runs),
+      result slimming, auto-compare banner
+- [x] UI — History dropdown in `.result-actions`, comparison modal, tagging, CSS
+
+### Verification
+
+- `node test-run-history.js` — 12/12 passing.
+- Three Playwright/Electron E2E passes against a live TLS target, all green:
+  history file written per run, button enable/disable, auto-compare banner only
+  from the second run on, dropdown listing, comparison modal (headline, base
+  switcher, show-unchanged toggle), tag persisted to disk and shown in the
+  dropdown, `new`/`removed` rows when the scenario selection changes,
+  `regressed` rows when the target goes down, per-suite isolation (HTTP/2 tab
+  empty while TLS is populated), retention capped at 10, survival across an app
+  restart, empty run saving nothing, and STOP-ed runs flagged `aborted`.
+
+### Notes
+
+- A run stopped between scenarios emits no `ABORTED` rows, so the STOP button
+  sets a `runStopped` flag that marks the record partial. Without it a truncated
+  run would diff as "everything removed" against a full one.
+- Heavy fields (`packets`, `probe`, `response`, baseline/firewall/helper data)
+  are stripped before persisting — real run files land around 1.5 KB.
+- Pre-existing, unrelated: LOCAL TARGET mode cannot start its TLS server inside
+  Electron ("Failed to set ECDH curve") because Electron's BoringSSL lacks the
+  PQC named groups `WellBehavedServer` requests; the same server starts fine
+  under plain Node. E2E therefore ran in client mode against an external target.
+
+---
+
+## Fix: LOCAL TARGET mode failed inside Electron ("Failed to set ECDH curve")
+
+**Root cause.** `getOpenSSLGroups()` shelled out to the `openssl` binary on PATH
+to discover named groups, then handed that list to `tls.createSecureContext()`
+— but the CLI and the TLS library compiled into the running process are
+different implementations. Electron links BoringSSL, which accepts
+`X25519MLKEM768` and `MLKEM1024` but rejects `SecP256r1MLKEM768`,
+`SecP384r1MLKEM1024`, `MLKEM768` and `MLKEM512`. `ecdhCurve` validates the
+colon-joined list as a unit, so one unsupported name rejected the whole list
+and the local server never started.
+
+**Why distributed mode was unaffected.** Its servers run in agent processes
+started with `node client.js --agent` / `node server.js --agent` (locally or
+over SSH), i.e. plain Node linked against OpenSSL — the same family as the CLI
+being probed, so the two lists agreed. Only local mode builds its server inside
+the Electron main process (`main.js:315`, `new WellBehavedServer(...)`), which
+is where the two disagreed. The fix also hardens agents on remote hosts whose
+`openssl` CLI is newer than their `node`.
+
+- [x] `lib/tls-groups.js` (new) — `getNodeTlsGroups()` probes the *running*
+      TLS stack by attempting each candidate group, verifies the joined list,
+      falls back to classical curves, and caches. No subprocess. Also exports
+      `hasPqcSupport()`.
+- [x] `lib/well-behaved-server.js`, `lib/unified-server.js` — use it in place
+      of their local CLI-probing copies (both feed `tls.createSecureContext`)
+- [x] `lib/scan-scenarios.js` — same fix for `WELL_BEHAVED_GROUPS`, which
+      predicts what the Node server can negotiate and so drives scan
+      `expected` verdicts. Its comment already said "Node TLS server"; it was
+      probing the CLI.
+- [x] `lib/baseline.js`, `lib/openssl-peer.js` — intentionally left alone:
+      they pass `-groups` to a spawned `openssl` binary, so probing the CLI is
+      correct there.
+- [x] `test-tls-groups.js` (new) — 8 tests, green under both plain Node and
+      Electron (`ELECTRON_RUN_AS_NODE=1`).
+
+### Verification
+
+- Groups resolved: Node → all 10 candidates; Electron → the 6 BoringSSL
+  accepts. PQC retained in both.
+- GUI: LOCAL TARGET run of a classical and a PQC ClientHello scenario now
+  completes (previously "Failed to start local server"), both graded PASS.
+- Regression sweep in Electron: LOCAL TARGET works on all four tabs — TLS,
+  HTTP/2, QUIC, Raw TCP — each recording to its own history directory.
+- Scan `expected` verdicts identical before and after in both runtimes
+  (18 DROPPED / 6 PASSED for PQC rows).
+
+---
+
+## Fix: a run where nothing executed was graded "A — all tests passed"
+
+**Root cause.** `gradeResult()` returned `INFO` for two unrelated outcomes:
+"the scenario ran but had no expected value to assert against", and "the
+scenario never ran at all" (ERROR/ABORTED). `computeOverallGrade()` picks a
+letter from fails and warns only, so a run where every scenario failed to
+connect had zero fails, zero warns → fell through to the final `else` →
+Grade A, "All tests passed — robust TLS implementation". The CLI already
+exited 1 on errors; only the grade lied.
+
+**Design.** A grade is a claim about the target's security posture, and that
+claim is only meaningful if tests produced verdicts. Errors are evidence
+neither for the target (not A) nor against it (not D/F) — grading them as
+failures would report a phantom vulnerability when someone simply typo'd a
+port, and would put connection failures in the CLI's "Security Findings"
+list. The honest third answer is *inconclusive*.
+
+- [x] `lib/grader.js` — `ERROR` is now its own per-scenario finding grade,
+      distinct from `INFO`. `stats` gains `error`. New overall grade `I`
+      when nothing executed or more than half the scenarios errored.
+      Precedence: hostDown → F and critical → F are both checked *before*
+      the inconclusive test, since a crash makes every later scenario error
+      and must not be softened. The warn ratio is now measured against
+      scenarios that actually ran, and an A-grade label discloses skipped
+      tests instead of claiming all passed.
+- [x] `lib/grader.js` — hostDown is now checked before critical severity.
+      hostDown always produces a critical finding, so the "Target crashed
+      during testing" branch was unreachable; a crash is more specific than
+      "critical vulnerability".
+- [x] `lib/run-compare.js` — `ERROR` ranked between INFO and WARN, plus an
+      explicit rule that a scenario which stopped running is a regression
+      whatever it reported before (FAIL outranks ERROR, so the rank
+      comparison alone would have called losing coverage an improvement).
+- [x] `lib/logger.js`, `renderer/app.js`, `renderer/styles.css` — grey `I`
+      badge (`.grade-I`), `.finding-ERROR` style, and a "DID NOT RUN: n"
+      count in both the GUI summary bar and the CLI banner.
+- [x] `test-grader.js` (new) — 13 tests, plus 2 added to
+      `test-run-history.js` for the ERROR transitions.
+
+### Verification
+
+- 13 grader tests green, covering: ERROR vs INFO separation, all-errored →
+  I, empty run → I, majority-errored → I, minority errors → still A with a
+  disclosing label, clean run → unchanged A label, crash → F not I,
+  critical → F despite errors, errors excluded from `findings[]`, warn ratio
+  over executed scenarios.
+- All unit suites green under both plain Node and the Electron runtime.
+- GUI: a run against a dead port now shows a grey `I`, "Inconclusive — 2 of 2
+  scenarios did not run", `DID NOT RUN: 2`, and ERROR findings; a healthy run
+  still shows `A` with the original label and no did-not-run count. Comparing
+  the two reads as "2 improved".
+- CLI: `OVERALL GRADE: I` with the same label; exit code still 1.
+- Four-suite LOCAL TARGET sweep still green.
+
+---
+
+## Fix: distributed runs graded "Inconclusive — no scenarios ran"
+
+Reported after the grading change: a TLS category-A distributed run against
+local agents showed every scenario passing in the table, but the banner read
+`Inconclusive — no scenarios ran` with `PASS: 0`.
+
+**Root cause — a latent bug the grading change exposed.** In distributed mode
+each agent computes `computeOverallGrade(state.results)` over *its own* half
+and broadcasts a `report` event; `main.js` forwarded both verbatim and the
+renderer's `onReport` handler did `lastReport = report`, so whichever agent
+finished last won. In a client-fuzz run the server agent is only the
+well-behaved helper — its results are broadcast as `debug-result` and merged
+into the client's rows, so its own `state.results` is empty. When that empty
+report landed second, the UI displayed a grade computed from zero scenarios.
+It previously rendered as a green `A` ("All tests passed"), which looked
+plausible and hid the bug; grading an empty set as `I` made it visible.
+
+There is a second reason an agent's own report can't be trusted: `tryMerge()`
+in `main.js` re-grades server-fuzz rows after merging in the helper's
+observation, so the agent's grade for those rows is stale by construction.
+
+**Fix.** `main.js` now grades the set it actually forwarded to the renderer.
+Every displayed row passes through `emitFuzz()` or `tryMerge()`, so both
+accumulate into `distributedResults`; the `report` event emits
+`computeOverallGrade(distributedResults)` instead of the agent's partial
+report, and the drain re-emits after `flushPendingRows()` so late-merged rows
+are counted. The array is per-subscription, and `subscribeDistributedEvents()`
+runs at the start of every distributed run, so it resets naturally.
+
+- [x] `main.js` — accumulate forwarded rows; emit a merged report on the
+      agent `report` event and again after the post-run drain.
+
+### Verification
+
+Reproduced and fixed both directions with the same GUI driver, two local
+agents (`node client.js`, `node server.js`) and 3 category-A scenarios:
+
+- With the fix reverted: 3 rows, all `TLS-ALERT-SERVER`, grade
+  `I — Inconclusive — no scenarios ran`, `PASS: 0` — matching the report.
+- With the fix: same 3 rows, grade `A — All tests passed`, `PASS: 3`, and the
+  history record stores grade `A`.
+- Graded count now equals the row count shown in the table (3 of 3).
+- Unit suites and the local-mode grading checks still green.
+
+---
+
+## Rework: run history UX (save prompt + Compare)
+
+Feedback: the history/comparison UI was not intuitive — saving was invisible
+(runs were stored silently), naming was buried inside the comparison modal,
+and the button said "History" while the feature people wanted was comparison.
+
+- [x] **Save prompt after every run.** New `#saveRunOverlay` modal shows a
+      one-line summary (suite · scenario count · grade · unexpected count ·
+      whether it was stopped early), a name field, and SAVE / DON'T SAVE.
+      Enter saves, Escape dismisses.
+- [x] **The run is written to disk before the prompt appears**, and the
+      prompt only names it or deletes it. A dismissed dialog, a crash, or a
+      stray click therefore cannot lose a run, and the auto-comparison
+      always has a baseline. DON'T SAVE calls the new delete path.
+- [x] **"History" renamed "Compare"** (`#compareBtn` / `#compareMenu`).
+- [x] **Menu now leads with the comparison people want**: a
+      "Compare current run with" section listing the other saved runs, then
+      "Compare any two saved runs…" for picking both sides. When there is no
+      current run (e.g. straight after launch) it falls back to a plain
+      "Saved runs" list.
+- [x] **Comparison modal takes two selectors** (`base → target`) instead of a
+      fixed current-run side, so any two saved runs can be diffed without
+      reopening. Both entry points now open the same view and differ only in
+      what they preselect. Same run on both sides shows "Pick two different
+      runs to compare." rather than an empty diff.
+- [x] **Named runs lead with their name** in the menu, the selectors and the
+      modal subtitle; unnamed ones fall back to their timestamp. The modal
+      footer relabelled "Rename left run" / SAVE NAME.
+- [x] `lib/run-history.js` `deleteRun()`, `history-delete` IPC handler,
+      `historyDelete` preload alias, `.history-menu-heading` style.
+
+### Verification
+
+- `test-run-history.js` extended with a `deleteRun` test (removes only the
+  named run, reports false on a second delete); the corrupt-file test was
+  made order-independent since deletion changes the run count.
+- 18-check GUI driver, all green: prompt appears after each run and
+  summarises it; the run is on disk *before* the prompt; the entered name is
+  persisted; Compare enables after the first save; the menu shows both the
+  "current run" section and the any-two entry; run names appear in the menu
+  and both selectors with the current run flagged; the diff renders; swapping
+  a selector re-runs the comparison; DON'T SAVE removes that run and leaves
+  the named ones intact.
+- Unit suites and the four-suite LOCAL TARGET sweep still green (that driver
+  now dismisses the new prompt between suites).
