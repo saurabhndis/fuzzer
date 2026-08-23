@@ -746,6 +746,7 @@ Monitor a Palo Alto Networks (PAN-OS) firewall during fuzzing to detect crashes 
 - **Distributed**: Remote agent orchestration across VMs
 - **Auto-Deploy (Beta)**: One-click SSH deployment of agents to remote machines
 - **DUT**: Firewall monitoring during tests
+- **Account**: A login badge in the header (top-right) shows `Anonymous` or your signed-in username. Click it to create an account (work email + server address), sign in, or sign out — the same enrollment as `cli.js account`. While signed in, runs you launch are reported to the attestation server and appear in the operator console's live view.
 
 ### Scenario Selection Controls
 
@@ -840,9 +841,77 @@ fuzzer/
 
 ---
 
+## Run Attestation & Accounts
+
+WireStrike can produce a signed, verifiable receipt for a fuzzing run and — through a central service the team operator runs — a **PR token** that ties a run to a pull request under a named account.
+
+The fuzzer has two modes. **Anonymous** is the default: everything works, nothing is sent anywhere. **Signed-in** requires an account created with a `@paloaltonetworks.com` work email, and is what lets you attach attestation tokens to your PRs.
+
+### What a receipt and token do and don't prove
+
+A receipt cannot prove a run happened — the tool runs on your own machine. What the service adds is **attribution** (an account bound to your key by a 2-year certificate), **authenticated submission** (runs arrive over mTLS; only your own signed runs count, and only you can bind a PR number to them), **an independent copy** of your last 100 runs held by the server, and **disclosure** of trivial targets / aborted runs / inconclusive grades. It does not defend against a dishonest operator: the token's trust anchor is the reviewed commit that adds `.wirestrike/server/server.pem` to the repo.
+
+### The server
+
+The attestation server is maintained **privately by your team operator** — it is not part of this repository, because it holds the CA and token-signing keys. All you need from it is its **public certificate**, committed here as `.wirestrike/server/server.pem`, which the client trusts and which lets CI verify tokens offline. Ask your operator for the `--server` URL to enroll against.
+
+Capacity is 1000 users, each keeping their most recent 100 runs (older runs are evicted automatically). Only `@paloaltonetworks.com` emails may enroll.
+
+### User: create an account and attest a run
+
+```bash
+# One-time: your local signing key (also your mTLS identity)
+node cli.js attest --init-key
+
+# Create your account — issues your 2-year client certificate (CN = username,
+# email in the subject). The server cert is trusted from the repo checkout.
+node cli.js account --create --email you@paloaltonetworks.com --server https://attest.example.com:9443
+node cli.js account --status          # who am I / cert expiry
+node cli.js account --logout          # back to anonymous (key + cert kept on disk)
+node cli.js account --login           # sign back in (mTLS)
+
+# Run with attestation. When signed in you're asked for a PR number
+# (optional); it becomes part of the token. Non-interactive: pass --pr.
+node cli.js client fw.internal 443 --attest --pr 1234
+
+# The run prints a wst1: token. Paste both the wsr1: block and the wst1:
+# token into your PR. If a run didn't auto-submit, send it later:
+node cli.js submit --pr 1234
+```
+
+### User: review and compare your stored runs
+
+The server keeps your last 100 runs. List them, and compare any two field by field (both are scoped to your own account):
+
+```bash
+node cli.js runs                     # your stored runs, newest first
+node cli.js compare 17 12            # diff two runs by their serials
+```
+
+`compare` highlights what changed between two runs — grade, coverage, the scenario set, the results digest, pass/fail counts, repo commit, target, PR — so you can see, for example, that the same set of scenarios now passes where it previously failed.
+
+### Reviewer / CI: verify a token
+
+```bash
+# Offline — needs only the committed server cert. If a wsr1: block is pasted
+# alongside the token, the receipt↔token binding is checked too.
+node cli.js verify-token pr-description.txt
+
+# Online — additionally confirms the server still holds this exact token
+# (a re-bound or removed run fails this check).
+node cli.js verify-token - --online < pr-description.txt
+```
+
 ## Security Considerations
 
 This tool is designed for authorized security testing. Be aware of the following when deploying it:
+
+### Attestation
+
+- The attestation server is run privately by the operator (separate repository); its private key is the whole PKI. This repo only carries the operator's **public** certificate at `.wirestrike/server/server.pem`, which the client pins and which CI verifies tokens against. There is no public CA in this PKI — trust comes from that committed certificate.
+- A token proves the server verified a signed run under your enrolled identity; it does **not** prove the run happened or that the target was meaningful (see the note above). A revoked user's already-issued tokens are not individually revocable; the `--online` check mitigates this, since a removed or re-bound run no longer matches.
+- Your local signing/mTLS key lives at `~/.wirestrike/keys/ed25519.key` (mode 0600). Anonymous mode never contacts the server.
+
 
 ### Agent API
 

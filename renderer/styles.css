@@ -116,6 +116,19 @@ body {
   color: #fff;
 }
 
+.account-badge {
+  padding: 3px 12px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 600;
+  border: 1px solid var(--border);
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+.account-badge:hover { border-color: var(--accent); color: var(--text-primary); }
+.account-badge.signed-in { background: var(--green-dim); color: #fff; border-color: transparent; }
+
 @keyframes pulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.6; }
@@ -818,6 +831,8 @@ body.dut-active .results-table .fw-col { display: table-cell; }
 .grade-C { background: rgba(210,153,34,0.2); color: var(--orange); border: 2px solid var(--orange); }
 .grade-D { background: rgba(188,140,255,0.2); color: var(--purple); border: 2px solid var(--purple); }
 .grade-F { background: rgba(248,81,73,0.2); color: var(--red); border: 2px solid var(--red); }
+/* Inconclusive — too much of the run never executed to grade the target */
+.grade-I { background: rgba(139,148,158,0.15); color: var(--text-muted); border: 2px solid var(--text-muted); }
 
 .grade-label {
   font-size: 12px;
@@ -837,6 +852,7 @@ body.dut-active .results-table .fw-col { display: table-cell; }
 .grade-stats .g-fail { color: var(--red); }
 .grade-stats .g-warn { color: var(--orange); }
 .grade-stats .g-info { color: var(--text-muted); }
+.grade-stats .g-error { color: var(--text-secondary); font-weight: 600; }
 
 /* Finding badges in results table */
 .finding-badge {
@@ -853,6 +869,7 @@ body.dut-active .results-table .fw-col { display: table-cell; }
 .finding-FAIL { background: rgba(248,81,73,0.2); color: var(--red); }
 .finding-WARN { background: rgba(210,153,34,0.15); color: var(--orange); }
 .finding-INFO { background: rgba(139,148,158,0.1); color: var(--text-muted); }
+.finding-ERROR { background: rgba(139,148,158,0.18); color: var(--text-secondary); }
 
 .severity-badge {
   display: inline-block;
@@ -1355,4 +1372,77 @@ body.dut-active .results-table .fw-col { display: table-cell; }
 .scenario-tooltip .tt-divider {
   border-top: 1px solid var(--border, #e2e8f0);
   margin: 6px 0;
+}
+
+/* ── Run history dropdown + comparison ─────────────────────────────── */
+.history-menu {
+  min-width: 340px;
+  max-height: 420px;
+  overflow-y: auto;
+}
+
+.history-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 12px;
+  cursor: pointer;
+  transition: background 0.1s;
+}
+
+.history-item:hover {
+  background: var(--bg-hover);
+}
+
+.history-item-time {
+  color: var(--text-primary);
+  white-space: nowrap;
+}
+
+.history-item-tag {
+  flex: 1;
+  color: var(--text-muted);
+  font-style: italic;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.history-item-aborted {
+  color: var(--orange);
+  font-size: 10px;
+  text-transform: uppercase;
+}
+
+.history-empty {
+  padding: 8px 12px;
+  color: var(--text-muted);
+}
+
+.diff-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.diff-regressed { background: rgba(220, 38, 38, 0.12); color: var(--red); }
+.diff-improved { background: rgba(22, 163, 74, 0.12); color: var(--green); }
+.diff-status-changed { background: rgba(217, 119, 6, 0.12); color: var(--orange); }
+.diff-new { background: rgba(99, 102, 241, 0.12); color: var(--accent); }
+.diff-removed { background: rgba(124, 58, 237, 0.12); color: var(--purple); }
+.diff-match { background: var(--bg-tertiary); color: var(--text-muted); }
+
+.auto-compare-up { color: var(--green); font-weight: 600; }
+.auto-compare-down { color: var(--red); font-weight: 600; }
+
+.history-menu-heading {
+  padding: 6px 12px 4px;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
 }

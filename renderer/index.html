@@ -14,6 +14,7 @@
       <div class="header-meta">
         <span class="elapsed-clock" id="elapsedClock">Elapsed 00:00</span>
         <span class="header-status" id="statusBadge">IDLE</span>
+        <button id="accountBadge" class="account-badge" title="Account">Anonymous</button>
       </div>
     </header>
 
@@ -214,6 +215,10 @@
             <div class="result-actions">
               <input type="text" id="logPathInput" class="input-text" placeholder="/tmp/fuzzer-log.txt" style="width: 200px; margin-right: 10px;" />
               <button id="logToFileBtn" class="btn-small">Log: OFF</button>
+              <div class="select-menu-wrap">
+                <button id="compareBtn" class="btn-small select-menu-btn" disabled>Compare &#9662;</button>
+                <div id="compareMenu" class="select-menu history-menu"></div>
+              </div>
               <button id="exportJsonBtn" class="btn-small" disabled>Export JSON</button>
               <button id="clearResultsBtn" class="btn-small">Clear</button>
             </div>
@@ -364,6 +369,100 @@
       </div>
       <div style="padding:20px; overflow-y:auto; flex:1;">
         <pre id="fwModalContent" style="margin:0; white-space:pre-wrap; word-wrap:break-word; color:var(--text-primary); font-family:monospace; font-size:13px;"></pre>
+      </div>
+    </div>
+  </div>
+
+  <!-- Run History Comparison Modal -->
+  <div id="historyCompareOverlay" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.3); z-index:10002; align-items:center; justify-content:center;">
+    <div style="background:var(--bg-secondary); border:1px solid var(--border); border-radius:12px; width:92%; max-width:950px; max-height:90vh; display:flex; flex-direction:column; box-shadow:0 15px 40px rgba(0,0,0,0.15);">
+      <div style="padding:16px 20px; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center;">
+        <div>
+          <h3 style="margin:0; font-size:16px; font-weight:600; color:var(--primary);">Run Comparison — <span id="historyCompareSuite"></span></h3>
+          <div id="historyCompareSubtitle" style="font-size:11px; color:var(--text-muted); margin-top:3px;"></div>
+        </div>
+        <button id="closeHistoryCompareModal" style="background:none; border:none; color:var(--text-muted); cursor:pointer; font-size:24px;">&times;</button>
+      </div>
+      <div style="padding:12px 20px; border-bottom:1px solid var(--border); display:flex; gap:10px; align-items:center; background:var(--bg-primary); flex-wrap:wrap;">
+        <label style="font-size:11px; color:var(--text-muted); text-transform:uppercase; white-space:nowrap;">Compare</label>
+        <select id="compareBaseSelect" class="agent-input" style="flex:1; min-width:200px;"></select>
+        <span style="color:var(--text-muted);">&#8594;</span>
+        <select id="compareTargetSelect" class="agent-input" style="flex:1; min-width:200px;"></select>
+        <label style="font-size:11px; color:var(--text-secondary); display:flex; align-items:center; gap:5px; white-space:nowrap;">
+          <input type="checkbox" id="compareShowUnchanged"> Show unchanged
+        </label>
+      </div>
+      <div id="historyCompareSummary" style="padding:10px 20px; border-bottom:1px solid var(--border); font-size:12px; color:var(--text-primary);"></div>
+      <div style="padding:0 20px; overflow-y:auto; flex:1;">
+        <table style="width:100%; border-collapse:collapse; font-size:12px;">
+          <thead>
+            <tr style="position:sticky; top:0; background:var(--bg-tertiary); z-index:1;">
+              <th style="padding:8px 6px; text-align:left; font-size:10px; text-transform:uppercase; color:var(--text-muted); border-bottom:1px solid var(--border);">Scenario</th>
+              <th style="padding:8px 6px; text-align:left; font-size:10px; text-transform:uppercase; color:var(--text-muted); border-bottom:1px solid var(--border);">Category</th>
+              <th style="padding:8px 6px; text-align:left; font-size:10px; text-transform:uppercase; color:var(--text-muted); border-bottom:1px solid var(--border);">Base</th>
+              <th style="padding:8px 6px; text-align:left; font-size:10px; text-transform:uppercase; color:var(--text-muted); border-bottom:1px solid var(--border);">Current</th>
+              <th style="padding:8px 6px; text-align:left; font-size:10px; text-transform:uppercase; color:var(--text-muted); border-bottom:1px solid var(--border);">Change</th>
+            </tr>
+          </thead>
+          <tbody id="historyCompareBody"></tbody>
+        </table>
+      </div>
+      <div style="padding:12px 20px; border-top:1px solid var(--border); display:flex; gap:10px; align-items:center;">
+        <label style="font-size:11px; color:var(--text-muted); text-transform:uppercase; white-space:nowrap;">Rename left run</label>
+        <input type="text" id="historyTagInput" class="agent-input" style="flex:1;" placeholder="e.g. before firmware upgrade">
+        <button id="historyTagSaveBtn" class="btn-small" style="height:28px;">SAVE NAME</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Save Run Prompt (shown after each run completes) -->
+  <div id="saveRunOverlay" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.3); z-index:10003; align-items:center; justify-content:center;">
+    <div style="background:var(--bg-secondary); border:1px solid var(--border); border-radius:12px; width:90%; max-width:480px; display:flex; flex-direction:column; box-shadow:0 15px 40px rgba(0,0,0,0.15);">
+      <div style="padding:16px 20px; border-bottom:1px solid var(--border);">
+        <h3 style="margin:0; font-size:16px; font-weight:600; color:var(--primary);">Save this run?</h3>
+        <div id="saveRunSummary" style="font-size:12px; color:var(--text-muted); margin-top:5px;"></div>
+      </div>
+      <div style="padding:20px; display:flex; flex-direction:column; gap:8px;">
+        <label style="font-size:11px; color:var(--text-muted); text-transform:uppercase;">Name this run</label>
+        <input type="text" id="saveRunNameInput" class="agent-input" style="width:100%;" placeholder="e.g. baseline before firewall policy change">
+        <div style="font-size:11px; color:var(--text-muted);">Saved runs stay available under <strong>Compare</strong>. The last 10 runs per suite are kept.</div>
+      </div>
+      <div style="padding:16px 20px; border-top:1px solid var(--border); display:flex; gap:10px; justify-content:flex-end; align-items:center;">
+        <button id="saveRunDiscardBtn" class="btn-small" style="height:30px;">DON'T SAVE</button>
+        <button id="saveRunConfirmBtn" class="btn btn-run" style="min-width:120px;">SAVE</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Attestation account modal -->
+  <div id="accountOverlay" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.3); z-index:10004; align-items:center; justify-content:center;">
+    <div style="background:var(--bg-secondary); border:1px solid var(--border); border-radius:12px; width:90%; max-width:460px; display:flex; flex-direction:column; box-shadow:0 15px 40px rgba(0,0,0,0.15);">
+      <div style="padding:16px 20px; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center;">
+        <h3 style="margin:0; font-size:16px; font-weight:600; color:var(--primary);">Attestation account</h3>
+        <span id="accountState" style="font-size:12px; color:var(--text-muted);"></span>
+      </div>
+      <div style="padding:20px; display:flex; flex-direction:column; gap:10px;">
+        <div id="accountSignedIn" style="display:none; font-size:13px;"></div>
+        <div id="accountForm" style="display:flex; flex-direction:column; gap:10px;">
+          <div style="font-size:12px; color:var(--text-muted);">Use your <strong>@paloaltonetworks.com</strong> work email to attest runs for your PRs. Enter the server address your team operator gave you.</div>
+          <label style="font-size:11px; color:var(--text-muted); text-transform:uppercase;">Server address</label>
+          <input type="text" id="acctServer" class="agent-input" placeholder="https://attest.example.com:9443">
+          <label style="font-size:11px; color:var(--text-muted); text-transform:uppercase;">Work email</label>
+          <input type="text" id="acctEmail" class="agent-input" placeholder="you@paloaltonetworks.com">
+          <label style="font-size:11px; color:var(--text-muted); text-transform:uppercase;">Username <span style="text-transform:none;">(optional)</span></label>
+          <input type="text" id="acctUsername" class="agent-input" placeholder="defaults to your email name">
+          <div style="display:flex; gap:8px; align-items:center;">
+            <button id="acctPickCert" class="btn-small" style="height:30px;">Choose server cert…</button>
+            <span id="acctCertPath" style="font-size:11px; color:var(--text-muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">no cert selected (uses repo copy if present)</span>
+          </div>
+        </div>
+        <div id="accountMsg" style="font-size:12px; min-height:16px;"></div>
+      </div>
+      <div style="padding:16px 20px; border-top:1px solid var(--border); display:flex; gap:10px; justify-content:flex-end; align-items:center;">
+        <button id="accountCloseBtn" class="btn-small" style="height:30px;">CLOSE</button>
+        <button id="accountLogoutBtn" class="btn-small" style="height:30px; display:none;">SIGN OUT</button>
+        <button id="accountLoginBtn" class="btn-small" style="height:30px; display:none;">SIGN IN</button>
+        <button id="accountCreateBtn" class="btn btn-run" style="min-width:120px;">CREATE ACCOUNT</button>
       </div>
     </div>
   </div>

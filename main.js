@@ -417,6 +417,16 @@ ipcMain.handle('run-fuzzer', async (event, opts) => {
         return result;
       };
 
+      // Report this GUI run to the attestation server (if signed in) so it
+      // shows as a running test in the operator console. Best-effort.
+      let reporter = { stop() {} };
+      try {
+        reporter = require('./lib/run-reporter').startReporting({
+          runId: require('crypto').randomUUID(), protocol, targetHost: host,
+          targetPort: portNum, mode: 'client', requestedScenarios: scenarios.length,
+        });
+      } catch (_) {}
+
       try {
         for (let loop = 0; loop < loopCount; loop++) {
           if (activeClient.aborted) break;
@@ -435,6 +445,7 @@ ipcMain.handle('run-fuzzer', async (event, opts) => {
           }
         }
       } finally {
+        reporter.stop();
         if (activeClient) {
           // Suppress shutdown log messages from the GUI packet log
           const origInfo = activeClient.logger.info;
@@ -1129,6 +1140,85 @@ ipcMain.handle('save-log-to-file', async (event, filePath, content) => {
   }
 });
 
+// --- Run History IPC Handlers ---
+
+const runHistory = require('./lib/run-history');
+const { compareRuns } = require('./lib/run-compare');
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+// protocol and id feed into filesystem lookups — reject anything that is not
+// a known suite name / UUID before touching disk.
+function validateHistoryArgs(protocol, ...ids) {
+  if (!runHistory.KNOWN_PROTOCOLS.includes(protocol)) {
+    throw new Error(`Unknown protocol: ${protocol}`);
+  }
+  for (const id of ids) {
+    if (!UUID_RE.test(String(id))) throw new Error('Invalid run id');
+  }
+}
+
+ipcMain.handle('history-save', async (event, record) => {
+  try {
+    validateHistoryArgs(record && record.protocol);
+    return runHistory.saveRun(app.getPath('userData'), record);
+  } catch (err) {
+    return { error: err.message };
+  }
+});
+
+ipcMain.handle('history-list', async (event, protocol) => {
+  try {
+    validateHistoryArgs(protocol);
+    return runHistory.listRuns(app.getPath('userData'), protocol);
+  } catch (err) {
+    return { error: err.message };
+  }
+});
+
+ipcMain.handle('history-load', async (event, protocol, id) => {
+  try {
+    validateHistoryArgs(protocol, id);
+    return runHistory.loadRun(app.getPath('userData'), protocol, id);
+  } catch (err) {
+    return { error: err.message };
+  }
+});
+
+ipcMain.handle('history-tag', async (event, protocol, id, tag) => {
+  try {
+    validateHistoryArgs(protocol, id);
+    const ok = runHistory.setTag(app.getPath('userData'), protocol, id, tag);
+    return { ok };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+});
+
+ipcMain.handle('history-delete', async (event, protocol, id) => {
+  try {
+    validateHistoryArgs(protocol, id);
+    const ok = runHistory.deleteRun(app.getPath('userData'), protocol, id);
+    return { ok };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+});
+
+ipcMain.handle('history-compare', async (event, protocol, idA, idB) => {
+  try {
+    validateHistoryArgs(protocol, idA, idB);
+    const userData = app.getPath('userData');
+    const a = runHistory.loadRun(userData, protocol, idA);
+    const b = runHistory.loadRun(userData, protocol, idB);
+    if (!a || !b) return { error: 'Run not found in history' };
+    const { rows, summary } = compareRuns(a, b);
+    return { a, b, rows, summary };
+  } catch (err) {
+    return { error: err.message };
+  }
+});
+
 // --- Distributed Mode IPC Handlers ---
 
 const send = (channel, data) => {
@@ -1157,8 +1247,23 @@ function subscribeDistributedEvents() {
   const pendingFuzzRows = new Map();      // pairId → { event, role, timer }
   const pendingHelperResults = new Map(); // pairId → { result, role, timer }
 
+  // Every row the renderer displays passes through emitFuzz or tryMerge, so
+  // accumulating here gives us exactly the result set the user sees — which
+  // is what the grade must be computed over. Each agent grades only its own
+  // half: in a client-fuzz run the server agent is just the well-behaved
+  // helper and grades nothing, so forwarding its report verbatim would show
+  // the user a verdict drawn from zero scenarios. tryMerge also re-grades
+  // server-fuzz rows, so the agents' own reports are stale for those too.
+  const distributedResults = [];
+
   const emitFuzz = (event, role) => {
-    send('fuzzer-result', { ...event.result, agentRole: role });
+    const row = { ...event.result, agentRole: role };
+    distributedResults.push(row);
+    send('fuzzer-result', row);
+  };
+
+  const sendDistributedReport = () => {
+    send('fuzzer-report', computeOverallGrade(distributedResults));
   };
 
   // Verdict logic mirrors lib/unified-client.js _computeVerdict / lib/
@@ -1220,7 +1325,9 @@ function subscribeDistributedEvents() {
         getQuicScenario(fuzzResult.scenario) || getTcpScenario(fuzzResult.scenario);
       merged.finding = gradeResult(merged, meta);
     } catch (_) {}
-    send('fuzzer-result', { ...merged, agentRole: fuzz.role });
+    const row = { ...merged, agentRole: fuzz.role };
+    distributedResults.push(row);
+    send('fuzzer-result', row);
   };
 
   const flushPendingRows = () => {
@@ -1238,6 +1345,9 @@ function subscribeDistributedEvents() {
   currentDistributedDrain = async (waitMs = 500) => {
     await new Promise((resolve) => setTimeout(resolve, waitMs));
     flushPendingRows();
+    // Re-send after the flush so late-merged rows are counted. This is the
+    // authoritative report for the run; the renderer keeps the last one.
+    sendDistributedReport();
   };
 
   currentDistributedUnsub = controller.onEvent((role, event) => {
@@ -1275,7 +1385,9 @@ function subscribeDistributedEvents() {
         break;
       }
       case 'report':
-        send('fuzzer-report', { ...event.report, agentRole: role });
+        // Deliberately not forwarding event.report — it covers only this
+        // agent's own results. Grade the merged set instead.
+        sendDistributedReport();
         break;
       case 'done':
         send('distributed-agent-done', { role });
@@ -1801,6 +1913,56 @@ ipcMain.handle('close-firewall', () => {
     firewallWindow = null;
   }
   return { ok: true };
+});
+
+// --- Attestation account (login box) ---
+// Thin wrappers over lib/attestation-remote.js. Each returns
+// {ok, ...} | {ok:false, error} so the renderer branches on one shape.
+ipcMain.handle('account-status', async () => {
+  try {
+    return { ok: true, status: require('./lib/attestation-remote').accountStatus() };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+});
+
+ipcMain.handle('account-create', async (_event, opts) => {
+  try {
+    const remote = require('./lib/attestation-remote');
+    const res = await remote.enroll({
+      server: opts.server, username: opts.username, email: opts.email, serverCertPath: opts.serverCertPath,
+    });
+    return { ok: true, username: res.username, email: res.email };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+});
+
+ipcMain.handle('account-login', async (_event, opts) => {
+  try {
+    const res = await require('./lib/attestation-remote').login({ server: opts && opts.server });
+    return { ok: true, username: res.username, email: res.email };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+});
+
+ipcMain.handle('account-logout', async () => {
+  try {
+    require('./lib/attestation-remote').logout();
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+});
+
+ipcMain.handle('account-pick-cert', async () => {
+  const result = await dialog.showOpenDialog(mainWindow, {
+    title: 'Choose the attestation server certificate (server.pem)',
+    properties: ['openFile'],
+    filters: [{ name: 'PEM', extensions: ['pem', 'crt', 'cer'] }, { name: 'All', extensions: ['*'] }],
+  });
+  return result.canceled ? { ok: true, path: null } : { ok: true, path: result.filePaths[0] };
 });
 
 // --- PAN-OS Utility: make an HTTPS request to the firewall ---

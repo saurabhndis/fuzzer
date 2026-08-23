@@ -16,6 +16,14 @@ contextBridge.exposeInMainWorld('fuzzer', {
   deletePcapTest: (name) => ipcRenderer.invoke('delete-pcap-test', name),
   savePcapDialog: () => ipcRenderer.invoke('save-pcap-dialog'),
   saveLogToFile: (path, content) => ipcRenderer.invoke('save-log-to-file', path, content),
+
+  // Run history
+  historySave: (record) => ipcRenderer.invoke('history-save', record),
+  historyList: (protocol) => ipcRenderer.invoke('history-list', protocol),
+  historyLoad: (protocol, id) => ipcRenderer.invoke('history-load', protocol, id),
+  historyTag: (protocol, id, tag) => ipcRenderer.invoke('history-tag', protocol, id, tag),
+  historyDelete: (protocol, id) => ipcRenderer.invoke('history-delete', protocol, id),
+  historyCompare: (protocol, idA, idB) => ipcRenderer.invoke('history-compare', protocol, idA, idB),
   onPacket: (cb) => {
     const listener = (_e, data) => cb(data);
     ipcRenderer.on('fuzzer-packet', listener);
@@ -71,6 +79,13 @@ contextBridge.exposeInMainWorld('fuzzer', {
   // Firewall monitor
   openFirewall: (dutConfig) => ipcRenderer.invoke('open-firewall', dutConfig),
   closeFirewall: () => ipcRenderer.invoke('close-firewall'),
+
+  // Attestation account (login box)
+  accountStatus: () => ipcRenderer.invoke('account-status'),
+  accountCreate: (opts) => ipcRenderer.invoke('account-create', opts),
+  accountLogin: (opts) => ipcRenderer.invoke('account-login', opts),
+  accountLogout: () => ipcRenderer.invoke('account-logout'),
+  accountPickCert: () => ipcRenderer.invoke('account-pick-cert'),
 });
 
 // PAN-OS Firewall API (used by the firewall popup window)

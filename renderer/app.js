@@ -150,6 +150,15 @@
   let clientActiveWorkers = 0;
   let serverActiveWorkers = 0;
   let distributedFinishTimer = null;
+  // Run history state
+  let historyPendingSave = false; // set when a run starts; consumed by the one save in showSummary()
+  let runStopped = false;         // user pressed STOP — the run is partial even without ABORTED rows
+  let currentRunId = null;        // history id of the most recently saved run
+  let historyRuns = [];           // metas for activeProtocol, newest first
+  let lastAutoCompare = null;     // { baseId, currId } from the post-run auto-compare
+  let compareBaseId = null;       // base run id shown in the comparison modal
+  let compareCurrId = null;       // current run id shown in the comparison modal
+  let compareData = null;         // last history-compare response
 
   // ── Scenario hover tooltip ──────────────────────────────────────────
   const scenarioTooltip = document.createElement('div');
@@ -623,6 +632,7 @@
     cvTabBtn.classList.remove('active');
 
     filterScenariosBySide();
+    refreshCompareMenu();
   });
 
   http2TabBtn.addEventListener('click', () => {
@@ -635,6 +645,7 @@
     cvTabBtn.classList.remove('active');
 
     filterScenariosBySide();
+    refreshCompareMenu();
   });
 
   quicTabBtn.addEventListener('click', () => {
@@ -647,6 +658,7 @@
     cvTabBtn.classList.remove('active');
 
     filterScenariosBySide();
+    refreshCompareMenu();
   });
 
   tcpTabBtn.addEventListener('click', () => {
@@ -659,6 +671,7 @@
     cvTabBtn.classList.remove('active');
 
     filterScenariosBySide();
+    refreshCompareMenu();
   });
 
   cvTabBtn.addEventListener('click', () => {
@@ -671,6 +684,7 @@
     tcpTabBtn.classList.remove('active');
 
     filterScenariosBySide();
+    refreshCompareMenu();
   });
 
   // Select dropdown menu
@@ -1639,6 +1653,8 @@
     }
     results = [];
     logFileHeader = false;
+    historyPendingSave = true;
+    runStopped = false;
     resultsBody.innerHTML = '';
     resultsEmpty.style.display = 'none';
     resultsTable.style.display = 'table';
@@ -1762,6 +1778,8 @@
     setRunning(true);
     results = [];
     logFileHeader = false;
+    historyPendingSave = true;
+    runStopped = false;
     resultsBody.innerHTML = '';
     resultsEmpty.style.display = 'none';
     resultsTable.style.display = 'table';
@@ -1924,6 +1942,8 @@
     }
     results = [];
     logFileHeader = false;
+    historyPendingSave = true;
+    runStopped = false;
     resultsBody.innerHTML = '';
     resultsEmpty.style.display = 'none';
     resultsTable.style.display = 'table';
@@ -2076,6 +2096,7 @@
   // Stop
   stopBtn.addEventListener('click', async () => {
     if (!running) return;
+    runStopped = true;
     if (distributedMode) {
       await window.fuzzer.distributedStop();
       addLogEntry('info', 'Stop requested for all agents...');
@@ -2377,6 +2398,7 @@
           <span class="g-fail">FAIL: ${r.stats.fail}</span>
           <span class="g-warn">WARN: ${r.stats.warn}</span>
           <span class="g-info">INFO: ${r.stats.info}</span>
+          ${r.stats.error > 0 ? `<span class="g-error">DID NOT RUN: ${r.stats.error}</span>` : ''}
         </span>
         <span style="margin-left:12px">|</span>
       `;
@@ -2416,6 +2438,8 @@
       rerunFailedBtn.disabled = true;
       rerunFailedBtn.title = 'No failed tests to rerun';
     }
+
+    maybeSaveRunToHistory();
   }
 
   function updateButtonStates() {
@@ -2592,6 +2616,500 @@
     return div.innerHTML;
   }
 
+  // ── Run history & comparison ────────────────────────────────────────
+  const compareBtn = document.getElementById('compareBtn');
+  const compareMenu = document.getElementById('compareMenu');
+  const historyCompareOverlay = document.getElementById('historyCompareOverlay');
+  const historyCompareSuite = document.getElementById('historyCompareSuite');
+  const historyCompareSubtitle = document.getElementById('historyCompareSubtitle');
+  const historyCompareSummary = document.getElementById('historyCompareSummary');
+  const historyCompareBody = document.getElementById('historyCompareBody');
+  const compareBaseSelect = document.getElementById('compareBaseSelect');
+  const compareTargetSelect = document.getElementById('compareTargetSelect');
+  const compareShowUnchanged = document.getElementById('compareShowUnchanged');
+  const historyTagInput = document.getElementById('historyTagInput');
+  const historyTagSaveBtn = document.getElementById('historyTagSaveBtn');
+  const closeHistoryCompareModal = document.getElementById('closeHistoryCompareModal');
+  const saveRunOverlay = document.getElementById('saveRunOverlay');
+  const saveRunSummary = document.getElementById('saveRunSummary');
+  const saveRunNameInput = document.getElementById('saveRunNameInput');
+  const saveRunConfirmBtn = document.getElementById('saveRunConfirmBtn');
+  const saveRunDiscardBtn = document.getElementById('saveRunDiscardBtn');
+
+  const PROTOCOL_LABELS = {
+    'tls': 'TLS', 'h2': 'HTTP/2', 'quic': 'QUIC', 'raw-tcp': 'Raw TCP', 'cert-verify': 'Cert-Verify',
+  };
+
+  // Whitelist copy of a result for persistence — drops the heavy fields
+  // (packets, probe, responses) so a history file stays a few KB.
+  function slimResult(r) {
+    return {
+      scenario: r.scenario,
+      category: r.category,
+      severity: r.severity,
+      status: r.status,
+      expected: r.expected,
+      verdict: r.verdict,
+      hostDown: !!r.hostDown,
+      finding: r.finding
+        ? { grade: r.finding.grade, severity: r.finding.severity, reason: r.finding.reason || null }
+        : null,
+      agentRole: r.agentRole || null,
+    };
+  }
+
+  // The run is written to disk first and the prompt only names or removes it.
+  // Writing on completion means a dismissed dialog, a crash, or an accidental
+  // click can't lose the run, and the auto-comparison always has a baseline.
+  async function maybeSaveRunToHistory() {
+    if (!historyPendingSave || results.length === 0) return;
+    historyPendingSave = false;
+    lastAutoCompare = null;
+
+    const record = {
+      protocol: activeProtocol,
+      tag: '',
+      mode: distributedMode ? 'distributed' : modeSelect.value,
+      distributed: distributedMode,
+      // A run stopped between scenarios produces no ABORTED rows, so the
+      // STOP flag is what marks it partial — otherwise the unrun scenarios
+      // would silently diff as "removed" against a full run.
+      aborted: runStopped || results.some(r => r.status === 'ABORTED'),
+      target: { host: localMode ? 'localhost' : hostInput.value.trim(), port: parseInt(portInput.value, 10) || null },
+      durationMs: runStartedAt ? Date.now() - runStartedAt : 0,
+      scenarioCount: new Set(results.map(r => r.scenario)).size,
+      report: lastReport,
+      results: results.map(slimResult),
+    };
+
+    try {
+      const res = await window.fuzzer.historySave(record);
+      if (res.error) {
+        addLogEntry('error', `History save failed: ${res.error}`);
+        return;
+      }
+      currentRunId = res.saved.id;
+      await refreshCompareMenu();
+
+      if (res.prev) {
+        lastAutoCompare = { baseId: res.prev.id, currId: res.saved.id };
+        const cmp = await window.fuzzer.historyCompare(activeProtocol, res.prev.id, res.saved.id);
+        if (!cmp.error) renderAutoCompareBanner(cmp.summary);
+      }
+
+      promptToNameRun(res.saved);
+    } catch (err) {
+      addLogEntry('error', `History save failed: ${err.message || err}`);
+    }
+  }
+
+  function promptToNameRun(meta) {
+    const suite = PROTOCOL_LABELS[activeProtocol] || activeProtocol;
+    const bits = [`${suite} · ${meta.scenarioCount} scenario${meta.scenarioCount === 1 ? '' : 's'}`];
+    if (meta.grade) bits.push(`Grade ${meta.grade}`);
+    if (meta.counts.unexpected > 0) bits.push(`${meta.counts.unexpected} unexpected`);
+    if (meta.aborted) bits.push('stopped early');
+    saveRunSummary.textContent = bits.join(' · ');
+    saveRunNameInput.value = '';
+    saveRunOverlay.style.display = 'flex';
+    saveRunNameInput.focus();
+  }
+
+  function closeSavePrompt() {
+    saveRunOverlay.style.display = 'none';
+  }
+
+  saveRunConfirmBtn.addEventListener('click', async () => {
+    const name = saveRunNameInput.value.trim();
+    closeSavePrompt();
+    if (!name || !currentRunId) return;
+    const res = await window.fuzzer.historyTag(activeProtocol, currentRunId, name);
+    if (res && res.ok) await refreshCompareMenu();
+    else addLogEntry('error', `Could not name the run${res && res.error ? `: ${res.error}` : ''}`);
+  });
+
+  saveRunDiscardBtn.addEventListener('click', async () => {
+    closeSavePrompt();
+    if (!currentRunId) return;
+    const discarded = currentRunId;
+    const res = await window.fuzzer.historyDelete(activeProtocol, discarded);
+    if (res && res.ok) {
+      currentRunId = null;
+      // The banner's "View diff" would point at a run that no longer exists.
+      if (lastAutoCompare && lastAutoCompare.currId === discarded) lastAutoCompare = null;
+      await refreshCompareMenu();
+      addLogEntry('info', 'Run discarded — not saved to history');
+    } else {
+      addLogEntry('error', `Could not discard the run${res && res.error ? `: ${res.error}` : ''}`);
+    }
+  });
+
+  saveRunNameInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') saveRunConfirmBtn.click();
+    if (e.key === 'Escape') closeSavePrompt();
+  });
+
+  function renderAutoCompareBanner(summary) {
+    const c = summary.counts;
+    const span = document.createElement('span');
+    let html = `<span style="margin-left:12px">|</span> vs previous run: `;
+    if (c.improved) html += `<span class="auto-compare-up">&#9650;${c.improved} improved</span> `;
+    if (c.regressed) html += `<span class="auto-compare-down">&#9660;${c.regressed} regressed</span> `;
+    if (c.statusChanged) html += `${c.statusChanged} status-changed `;
+    if (c.new || c.removed) html += `${c.new} new / ${c.removed} removed `;
+    if (!c.improved && !c.regressed && !c.statusChanged && !c.new && !c.removed) html += 'no changes ';
+    html += `<button id="viewDiffBtn" class="btn-small">View diff</button>`;
+    span.innerHTML = html;
+    summaryText.appendChild(span);
+  }
+
+  // The summary bar's innerHTML is rebuilt every run, so the diff button is
+  // handled by delegation instead of a direct binding.
+  summaryBar.addEventListener('click', (e) => {
+    if (e.target.closest('#viewDiffBtn') && lastAutoCompare) {
+      openCompareModal(lastAutoCompare.baseId, lastAutoCompare.currId);
+    }
+  });
+
+  function fmtRunTime(iso) {
+    const d = new Date(iso);
+    return isNaN(d) ? String(iso) : d.toLocaleString();
+  }
+
+  // Named runs lead with their name — that is what the user chose to
+  // recognise them by; unnamed ones fall back to the timestamp.
+  function runLabel(meta) {
+    const parts = [meta.tag ? meta.tag : fmtRunTime(meta.timestamp)];
+    if (meta.grade) parts.push(`Grade ${meta.grade}`);
+    if (meta.aborted) parts.push('stopped early');
+    if (meta.tag) parts.push(fmtRunTime(meta.timestamp));
+    return parts.join(' · ');
+  }
+
+  function menuRow(meta, { current = false } = {}) {
+    const item = document.createElement('div');
+    item.className = 'history-item';
+    item.dataset.id = meta.id;
+
+    const name = document.createElement('span');
+    name.className = 'history-item-time';
+    name.textContent = meta.tag || fmtRunTime(meta.timestamp);
+    item.appendChild(name);
+
+    if (meta.grade) {
+      const grade = document.createElement('span');
+      grade.className = `grade-badge grade-${meta.grade}`;
+      grade.textContent = meta.grade;
+      item.appendChild(grade);
+    }
+    if (meta.aborted) {
+      const ab = document.createElement('span');
+      ab.className = 'history-item-aborted';
+      ab.textContent = 'stopped early';
+      item.appendChild(ab);
+    }
+
+    const sub = document.createElement('span');
+    sub.className = 'history-item-tag';
+    sub.textContent = current ? 'current run'
+      : meta.tag ? fmtRunTime(meta.timestamp)
+      : `${meta.counts.unexpected} unexpected`;
+    item.appendChild(sub);
+
+    return item;
+  }
+
+  function menuHeading(text) {
+    const el = document.createElement('div');
+    el.className = 'history-menu-heading';
+    el.textContent = text;
+    return el;
+  }
+
+  async function refreshCompareMenu() {
+    try {
+      const metas = await window.fuzzer.historyList(activeProtocol);
+      historyRuns = Array.isArray(metas) ? metas : [];
+    } catch (_) {
+      historyRuns = [];
+    }
+    compareBtn.disabled = historyRuns.length === 0;
+    compareMenu.innerHTML = '';
+    if (historyRuns.length === 0) return;
+
+    const current = historyRuns.find(m => m.id === currentRunId) || null;
+    const others = historyRuns.filter(m => !current || m.id !== current.id);
+
+    // Primary action: diff what just ran against a saved run.
+    if (current && others.length > 0) {
+      compareMenu.appendChild(menuHeading('Compare current run with'));
+      for (const meta of others) {
+        const row = menuRow(meta);
+        row.dataset.action = 'against-current';
+        compareMenu.appendChild(row);
+      }
+      const divider = document.createElement('div');
+      divider.className = 'select-menu-divider';
+      compareMenu.appendChild(divider);
+    }
+
+    // Secondary: pick both sides yourself.
+    const pick = document.createElement('div');
+    pick.className = 'select-menu-item';
+    pick.dataset.action = 'pick-two';
+    pick.textContent = historyRuns.length >= 2
+      ? 'Compare any two saved runs…'
+      : 'Open saved run…';
+    compareMenu.appendChild(pick);
+
+    if (!current || others.length === 0) {
+      compareMenu.appendChild(menuHeading('Saved runs'));
+      for (const meta of historyRuns) {
+        const row = menuRow(meta, { current: !!current && meta.id === current.id });
+        row.dataset.action = 'against-current';
+        compareMenu.appendChild(row);
+      }
+    }
+  }
+
+  compareBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    selectMenu.classList.remove('open');
+    compareMenu.classList.toggle('open');
+  });
+
+  document.addEventListener('click', () => {
+    compareMenu.classList.remove('open');
+  });
+
+  compareMenu.addEventListener('click', (e) => {
+    const pickTwo = e.target.closest('[data-action="pick-two"]');
+    const item = e.target.closest('.history-item');
+    if (!pickTwo && !item) return;
+    compareMenu.classList.remove('open');
+
+    if (pickTwo) {
+      // Default to the two most recent, which is the comparison people
+      // almost always want when they open the picker cold.
+      const [b, a] = [historyRuns[0], historyRuns[1] || historyRuns[0]];
+      openCompareModal(a.id, b.id);
+      return;
+    }
+
+    const current = historyRuns.find(m => m.id === currentRunId) || historyRuns[0];
+    let baseId = item.dataset.id;
+    let targetId = current ? current.id : historyRuns[0].id;
+    if (baseId === targetId) {
+      const older = historyRuns.find(m => m.id !== targetId);
+      if (older) baseId = older.id;
+    }
+    openCompareModal(baseId, targetId);
+  });
+
+  function fillRunSelect(select, selectedId) {
+    select.innerHTML = '';
+    for (const meta of historyRuns) {
+      const opt = document.createElement('option');
+      opt.value = meta.id;
+      opt.textContent = runLabel(meta) + (meta.id === currentRunId ? ' · current run' : '');
+      select.appendChild(opt);
+    }
+    select.value = selectedId;
+  }
+
+  async function openCompareModal(baseId, targetId) {
+    historyCompareSuite.textContent = PROTOCOL_LABELS[activeProtocol] || activeProtocol;
+    // Both sides are freely selectable — the entry points differ only in what
+    // they preselect, so "current vs saved" and "any two saved" are one view.
+    fillRunSelect(compareBaseSelect, baseId);
+    fillRunSelect(compareTargetSelect, targetId);
+    historyCompareOverlay.style.display = 'flex';
+    await loadComparison(baseId, targetId);
+  }
+
+  async function loadComparison(baseId, targetId) {
+    compareBaseId = baseId;
+    compareCurrId = targetId;
+    historyCompareSummary.textContent = 'Comparing…';
+    historyCompareBody.innerHTML = '';
+
+    if (baseId === targetId) {
+      historyCompareSummary.textContent = 'Pick two different runs to compare.';
+      compareData = null;
+      historyCompareSubtitle.textContent = '';
+      return;
+    }
+
+    try {
+      const cmp = await window.fuzzer.historyCompare(activeProtocol, baseId, targetId);
+      if (cmp.error) {
+        historyCompareSummary.textContent = `Comparison failed: ${cmp.error}`;
+        compareData = null;
+        return;
+      }
+      compareData = cmp;
+      const baseMeta = historyRuns.find(m => m.id === baseId);
+      const targetMeta = historyRuns.find(m => m.id === targetId);
+      historyCompareSubtitle.textContent =
+        `${baseMeta ? runLabel(baseMeta) : '?'}  →  ${targetMeta ? runLabel(targetMeta) : '?'}`;
+      historyCompareSummary.textContent = cmp.summary.headline;
+      historyTagInput.value = baseMeta ? baseMeta.tag : '';
+      renderCompareTable();
+    } catch (err) {
+      historyCompareSummary.textContent = `Comparison failed: ${err.message || err}`;
+      compareData = null;
+    }
+  }
+
+  function renderCompareCell(cell) {
+    if (!cell) return '<span class="history-item-tag">—</span>';
+    const vCls = cell.verdict === 'AS EXPECTED' ? 'expected' : cell.verdict === 'UNEXPECTED' ? 'unexpected' : 'na';
+    let html = `<span class="status-badge status-${_escHtml(cell.status)}">${_escHtml(cell.status)}</span>`;
+    if (cell.verdict) {
+      html += ` <span class="verdict-badge verdict-${vCls}">${_escHtml(cell.verdict)}</span>`;
+    }
+    return html;
+  }
+
+  function renderCompareTable() {
+    historyCompareBody.innerHTML = '';
+    if (!compareData) return;
+    const showUnchanged = compareShowUnchanged.checked;
+    for (const row of compareData.rows) {
+      if (!showUnchanged && row.classification === 'match') continue;
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td style="padding:6px; border-bottom:1px solid var(--border); font-family:monospace;">${_escHtml(row.scenario)}</td>
+        <td style="padding:6px; border-bottom:1px solid var(--border);">${_escHtml(row.category)}</td>
+        <td style="padding:6px; border-bottom:1px solid var(--border);">${renderCompareCell(row.prev)}</td>
+        <td style="padding:6px; border-bottom:1px solid var(--border);">${renderCompareCell(row.curr)}</td>
+        <td style="padding:6px; border-bottom:1px solid var(--border);"><span class="diff-badge diff-${row.classification}">${row.classification}</span></td>
+      `;
+      historyCompareBody.appendChild(tr);
+    }
+    if (!historyCompareBody.children.length) {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `<td colspan="5" style="padding:12px 6px; color:var(--text-muted);">No differences — the runs match on every scenario.</td>`;
+      historyCompareBody.appendChild(tr);
+    }
+  }
+
+  compareBaseSelect.addEventListener('change', () => loadComparison(compareBaseSelect.value, compareTargetSelect.value));
+  compareTargetSelect.addEventListener('change', () => loadComparison(compareBaseSelect.value, compareTargetSelect.value));
+  compareShowUnchanged.addEventListener('change', renderCompareTable);
+
+  historyTagSaveBtn.addEventListener('click', async () => {
+    if (!compareBaseId) return;
+    const res = await window.fuzzer.historyTag(activeProtocol, compareBaseId, historyTagInput.value.trim());
+    if (res && res.ok) {
+      await refreshCompareMenu();
+      fillRunSelect(compareBaseSelect, compareBaseId);
+      fillRunSelect(compareTargetSelect, compareCurrId);
+    } else {
+      addLogEntry('error', `Could not save the name${res && res.error ? `: ${res.error}` : ''}`);
+    }
+  });
+
+  closeHistoryCompareModal.addEventListener('click', () => {
+    historyCompareOverlay.style.display = 'none';
+  });
+
+  // ── Attestation account (login box) ───────────────────────────────
+  const acct = {
+    badge: document.getElementById('accountBadge'),
+    overlay: document.getElementById('accountOverlay'),
+    state: document.getElementById('accountState'),
+    signedIn: document.getElementById('accountSignedIn'),
+    form: document.getElementById('accountForm'),
+    server: document.getElementById('acctServer'),
+    email: document.getElementById('acctEmail'),
+    username: document.getElementById('acctUsername'),
+    certPath: document.getElementById('acctCertPath'),
+    msg: document.getElementById('accountMsg'),
+    pickCert: document.getElementById('acctPickCert'),
+    close: document.getElementById('accountCloseBtn'),
+    logout: document.getElementById('accountLogoutBtn'),
+    login: document.getElementById('accountLoginBtn'),
+    create: document.getElementById('accountCreateBtn'),
+  };
+  let acctCert = null;
+
+  async function refreshAccountBadge() {
+    if (!window.fuzzer.accountStatus) return;
+    const r = await window.fuzzer.accountStatus();
+    const st = r.ok ? r.status : { mode: 'anonymous' };
+    if (st.mode === 'account') {
+      acct.badge.textContent = `● ${st.username}`;
+      acct.badge.classList.add('signed-in');
+      acct.badge.title = `Signed in as ${st.username} (${st.email || ''})`;
+    } else {
+      acct.badge.textContent = 'Anonymous';
+      acct.badge.classList.remove('signed-in');
+      acct.badge.title = 'Not signed in — click to create an account';
+    }
+    return st;
+  }
+
+  function setAcctMsg(text, kind) {
+    acct.msg.textContent = text || '';
+    acct.msg.style.color = kind === 'err' ? 'var(--red)' : kind === 'ok' ? 'var(--green)' : 'var(--text-muted)';
+  }
+
+  async function openAccountModal() {
+    setAcctMsg('');
+    const st = await refreshAccountBadge();
+    const signedIn = st && st.mode === 'account';
+    acct.signedIn.style.display = signedIn ? 'block' : 'none';
+    acct.form.style.display = signedIn ? 'none' : 'flex';
+    acct.state.textContent = signedIn ? 'Signed in' : 'Anonymous';
+    acct.logout.style.display = signedIn ? 'inline-block' : 'none';
+    acct.login.style.display = (!signedIn && st && st.enrolled) ? 'inline-block' : 'none';
+    acct.create.style.display = signedIn ? 'none' : 'inline-block';
+    if (signedIn) {
+      acct.signedIn.innerHTML = `Signed in as <strong>${st.username}</strong> (${st.email || ''}).` +
+        (st.certExpiresAt ? `<br><span style="color:var(--text-muted); font-size:11px;">Certificate valid until ${new Date(st.certExpiresAt).toISOString().slice(0, 10)}.</span>` : '') +
+        `<br><span style="color:var(--text-muted); font-size:11px;">Runs you launch are attested to ${st.serverUrl || 'your server'}.</span>`;
+    } else if (st && st.serverUrl) {
+      acct.server.value = st.serverUrl;
+    }
+    acct.overlay.style.display = 'flex';
+  }
+  function closeAccountModal() { acct.overlay.style.display = 'none'; }
+
+  acct.badge.addEventListener('click', openAccountModal);
+  acct.close.addEventListener('click', closeAccountModal);
+  acct.overlay.addEventListener('click', (e) => { if (e.target === acct.overlay) closeAccountModal(); });
+
+  acct.pickCert.addEventListener('click', async () => {
+    const r = await window.fuzzer.accountPickCert();
+    if (r.ok && r.path) { acctCert = r.path; acct.certPath.textContent = r.path; }
+  });
+
+  acct.create.addEventListener('click', async () => {
+    const email = acct.email.value.trim();
+    const server = acct.server.value.trim();
+    if (!email || !server) { setAcctMsg('Enter both a server address and your work email.', 'err'); return; }
+    setAcctMsg('Creating account…');
+    const r = await window.fuzzer.accountCreate({ email, server, username: acct.username.value.trim() || undefined, serverCertPath: acctCert || undefined });
+    if (r.ok) { setAcctMsg(`Account created — signed in as ${r.username}.`, 'ok'); await refreshAccountBadge(); setTimeout(openAccountModal, 400); }
+    else setAcctMsg(r.error, 'err');
+  });
+
+  acct.login.addEventListener('click', async () => {
+    setAcctMsg('Signing in…');
+    const r = await window.fuzzer.accountLogin({ server: acct.server.value.trim() || undefined });
+    if (r.ok) { setAcctMsg(`Signed in as ${r.username}.`, 'ok'); await refreshAccountBadge(); setTimeout(openAccountModal, 400); }
+    else setAcctMsg(r.error, 'err');
+  });
+
+  acct.logout.addEventListener('click', async () => {
+    await window.fuzzer.accountLogout();
+    await refreshAccountBadge();
+    openAccountModal();
+  });
+
   // Init
   loadScenarios();
+  refreshCompareMenu();
+  refreshAccountBadge();
 })();
