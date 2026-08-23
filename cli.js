@@ -25,6 +25,18 @@ const USAGE = `
     node cli.js delete-pcap-test-case <name>  Delete a PCAP test case
     node cli.js migrate-pcap-tests            Convert legacy pcap-tests/*.json to pcap-test-cases/*.js
 
+  Attestation & accounts:
+    node cli.js attest --init-key             Create your local signing key
+    node cli.js attest [--run <id>]           Emit a signed wsr1: block for a recorded run
+    node cli.js verify [block|file|-]         Verify a wsr1: block against .wirestrike/keys/
+    node cli.js account --create --email you@paloaltonetworks.com --server <url>
+                                              Create an account (issues your 2-year client cert)
+    node cli.js account --login|--logout|--status
+    node cli.js submit [block|file] --pr <n>  Send a signed run to the central server for a PR token
+    node cli.js verify-token [token|file|-]   Verify a wst1: PR token (add --online to ask the server)
+    node cli.js runs                          List your stored runs on the server
+    node cli.js compare <serialA> <serialB>   Compare two of your stored runs field by field
+
   Options:
     --scenario <name|all>        Run specific scenario or all
     --category <A-Y|PCAP-CASE>   Run all scenarios in a category (PCAP-CASE = saved test cases)
@@ -45,6 +57,9 @@ const USAGE = `
     --client-agent <h:p>    Client agent host:port for distributed mode (default: localhost:9200)
     --server-agent <h:p>    Server agent host:port for distributed mode (default: localhost:9201)
     --no-baseline           Skip OpenSSL/baseline comparison testing
+    --attest                Sign a receipt for this run (and submit it when signed in)
+    --pr <n>                PR number to bind into the attestation token (prompts in TTY if omitted)
+    --no-submit             Keep an --attest run local; don't send it to the central server
 
   PCAP Test Workflow:
     1. Ingest:  node cli.js client host 443 --ingest-pcap capture.pcap
@@ -64,12 +79,68 @@ const USAGE = `
     node cli.js client example.com 443 --ingest-pcap capture.pcap --distributed
 `;
 
+// Persist a durable record of the run, and emit a signed attestation block
+// when --attest was passed. Never fatal: a bookkeeping problem must not fail
+// a run that already produced results.
+async function recordAndMaybeAttest(ctx) {
+  const {
+    args, logger, runId, startedAt, protocol, mode, host, port, localServer,
+    requestedScenarios, scenarios, results, report, pcapFile, client, aborted, abortReason,
+    prNumber = null,
+  } = ctx;
+  try {
+    const { buildRunRecord, attestRun } = require('./lib/attestation-run');
+    const E = require('./lib/attestation-evidence');
+    const S = require('./lib/attestation-store');
+
+    const repo = E.collectRepoInfo(process.cwd());
+    const repoId = repo.available ? repo.repoId : 'no-repo';
+    const record = buildRunRecord({
+      runId, startedAt, finishedAt: Date.now(), protocol, mode,
+      aborted, abortReason, host, port, localServer,
+      requestedScenarios, scenarios, results, report, pcapFile,
+      dutIdentity: E.collectDutIdentity(client),
+    });
+    S.saveRunRecord(repoId, record);
+
+    if (!args.attest) return;
+    if (!S.keyStatus().exists) {
+      logger.error('--attest needs a signing key: run `node cli.js attest --init-key` first');
+      return;
+    }
+    const { envelope, block, warnings } = await attestRun(record, { cwd: process.cwd() });
+    console.log('');
+    console.log(block);
+    for (const w of warnings) logger.error(`Attestation caveat — ${w.message}`);
+
+    // Signed in: hand the receipt to the central server, which stores the
+    // run and issues the PR token. Same never-fatal contract as above.
+    if (!args['no-submit']) {
+      try {
+        const remote = require('./lib/attestation-remote');
+        if (remote.isSignedIn()) {
+          const res = await remote.submitRun({ envelope, prNumber });
+          require('./lib/attestation-commands').printToken(res);
+        }
+      } catch (err) {
+        logger.error(`Central submission failed (receipt is still in your local ledger — retry with \`node cli.js submit\`): ${err.message}`);
+      }
+    }
+  } catch (err) {
+    logger.error(`Attestation failed: ${err.message}`);
+  }
+}
+
 function parseArgs(argv) {
   const args = { _: [] };
   for (let i = 0; i < argv.length; i++) {
     if (argv[i].startsWith('--')) {
       const key = argv[i].slice(2);
-      if (key === 'verbose' || key === 'json' || key === 'merge-pcap' || key === 'distributed' || key === 'list-streams' || key === 'no-save') {
+      if (key === 'verbose' || key === 'json' || key === 'merge-pcap' || key === 'distributed' || key === 'list-streams' || key === 'no-save'
+        || key === 'attest' || key === 'attest-hash-target' || key === 'init-key' || key === 'force'
+        || key === 'list' || key === 'verify-ledger'
+        || key === 'create' || key === 'login' || key === 'logout' || key === 'status'
+        || key === 'online' || key === 'no-submit') {
         args[key] = true;
       } else if (key === 'no-baseline') {
         args.baseline = false;
@@ -105,6 +176,32 @@ function promptName(defaultValue) {
         rl.close();
         const trimmed = (answer || '').trim();
         resolve(trimmed.length > 0 ? trimmed : defaultValue);
+      }
+    );
+  });
+}
+
+/**
+ * Ask which PR this run is for. Optional — empty input means "no PR" — but
+ * if given, it is bound into the attestation token. Only called when the
+ * user is signed in and stdin is a TTY; `--pr` skips the prompt entirely.
+ */
+function promptPrNumber() {
+  return new Promise((resolve) => {
+    const readline = require('readline');
+    const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+    rl.question(
+      '\x1b[36m  PR number for this run (optional, becomes part of the attestation token): \x1b[0m',
+      (answer) => {
+        rl.close();
+        const trimmed = (answer || '').trim();
+        if (!trimmed) return resolve(null);
+        const n = parseInt(trimmed, 10);
+        if (!Number.isInteger(n) || String(n) !== trimmed) {
+          console.log('\x1b[33m  Not a number — continuing without a PR binding.\x1b[0m');
+          return resolve(null);
+        }
+        resolve(n);
       }
     );
   });
@@ -273,6 +370,21 @@ async function main() {
   const mergePcap = args['merge-pcap'] || false;
   let protocol = args.protocol || 'tls';
 
+  if (command === 'attest' || command === 'verify') {
+    const { runAttestCommand, runVerifyCommand } = require('./lib/attestation-commands');
+    process.exit(command === 'attest' ? await runAttestCommand(args) : await runVerifyCommand(args));
+  }
+
+  if (command === 'account' || command === 'submit' || command === 'verify-token'
+    || command === 'runs' || command === 'compare') {
+    const cmds = require('./lib/attestation-commands');
+    const fn = {
+      account: cmds.runAccountCommand, submit: cmds.runSubmitCommand,
+      'verify-token': cmds.runVerifyTokenCommand, runs: cmds.runRunsCommand, compare: cmds.runCompareCommand,
+    }[command];
+    process.exit(await fn(args));
+  }
+
   if (command === 'client') {
     const host = args._[1];
     const port = parseInt(args._[2]);
@@ -281,6 +393,26 @@ async function main() {
       console.log(USAGE);
       process.exit(1);
     }
+
+    // Account banner, and the optional PR number that gets bound into the
+    // attestation token. Never fatal: account state must not block a run.
+    let prNumber = null;
+    try {
+      const remote = require('./lib/attestation-remote');
+      if (remote.isSignedIn()) {
+        const acct = remote.loadConfig();
+        if (!args.json) console.log(`\x1b[32m  Signed in as ${acct.username}\x1b[0m \x1b[90m(${acct.email})\x1b[0m`);
+        if (args.pr !== undefined) {
+          const n = parseInt(args.pr, 10);
+          if (Number.isInteger(n)) prNumber = n;
+        } else if (process.stdin.isTTY && !args.json) {
+          prNumber = await promptPrNumber();
+        }
+      } else if (!args.json) {
+        console.log('\x1b[33m  Anonymous mode\x1b[0m \x1b[90m— create an account with your @paloaltonetworks.com work email to use the fuzzer for your PRs:\x1b[0m');
+        console.log('\x1b[90m    node cli.js account --create --email you@paloaltonetworks.com --server <url>\x1b[0m');
+      }
+    } catch (_) {}
 
     const useRawTcp = protocol === 'raw-tcp';
 
@@ -507,6 +639,11 @@ async function main() {
 
 
     // Use UnifiedClient for raw-tcp (or h2/quic), FuzzerClient for plain TLS
+    // One id shared by the run record, the manifest and the receipt, so the
+    // three can be correlated after the fact.
+    const runId = require('crypto').randomUUID();
+    const startedAt = Date.now();
+
     const client = (useRawTcp || protocol === 'h2' || protocol === 'quic')
       ? new UnifiedClient({ host, port, timeout, delay, logger, pcapFile, mergePcap })
       : new FuzzerClient({ host, port, timeout, delay, logger, pcapFile, mergePcap });
@@ -535,30 +672,71 @@ async function main() {
       originalResult(scenarioName, status, response, verdict, expectedReason, hostDown, finding, compliance);
     };
 
-    // Handle ctrl+c
+    // Ctrl+C: ask the run to stop, then let runScenarios return normally so
+    // the partial results and report survive. Exiting from the handler both
+    // discarded every result and reported success — an interrupted run must
+    // never look like a clean pass.
+    let abortReason = null;
+    let sigintCount = 0;
     process.on('SIGINT', () => {
+      if (++sigintCount > 1) {
+        logger.error('Interrupted again — exiting now, results discarded');
+        process.exit(130);
+      }
+      abortReason = 'sigint';
+      logger.info('Interrupted — finishing the current scenario, then writing results...');
       client.abort();
-      client.close();
-      process.exit(0);
+      // The per-scenario safety timeout is far longer than anyone will wait
+      // on a Ctrl-C, so bound it here.
+      const watchdog = setTimeout(() => {
+        logger.error('Scenario did not settle within 10s — exiting');
+        process.exit(130);
+      }, 10000);
+      watchdog.unref();
     });
 
-    const { results, report } = await client.runScenarios(scenarios);
-    
+    // Report this run to the attestation server (if signed in) so it shows as
+    // a running test in the operator console. Never fatal.
+    let reporter = { stop() {} };
+    try {
+      reporter = require('./lib/run-reporter').startReporting({
+        runId, protocol, targetHost: host, targetPort: port, mode: 'client', requestedScenarios: scenarios.length,
+      });
+    } catch (_) {}
+
+    let results;
+    let report;
+    try {
+      ({ results, report } = await client.runScenarios(scenarios));
+    } finally {
+      reporter.stop();
+    }
+
     // Send graceful shutdown signal to fuzzer server
     if (client.shutdown) {
       await client.shutdown(protocol);
     }
-    
+
     client.close();
 
     if (pcapFile) {
       logger.info(`PCAP saved to: ${pcapFile}`);
     }
 
+    // Every run is recorded, with or without --attest: a plain CLI run used to
+    // leave nothing durable behind, so there was nothing to attest afterwards.
+    await recordAndMaybeAttest({
+      args, logger, runId, startedAt, protocol, mode: 'client',
+      host, port, localServer: false,
+      requestedScenarios: scenarios.length, scenarios, results, report,
+      pcapFile, client, aborted: abortReason !== null, abortReason, prNumber,
+    });
+
     // Exit with non-zero if any failures, errors, or host went down
     const hasErrors = results.some(r => r.status === 'ERROR');
     const hostWentDown = results.some(r => r.hostDown);
     const hasFails = report && report.stats.fail > 0;
+    if (abortReason === 'sigint') process.exit(130);
     process.exit(hasErrors || hostWentDown || hasFails ? 1 : 0);
 
   } else if (command === 'server') {
@@ -653,11 +831,23 @@ async function main() {
       originalResult(scenarioName, status, response, verdict, expectedReason, hostDown, finding, compliance);
     };
 
-    // Handle ctrl+c
+    // See the client branch: exiting from the handler discarded the results
+    // and reported success. Abort, let runScenarios return, then exit 130.
+    let abortReason = null;
+    let sigintCount = 0;
     process.on('SIGINT', () => {
+      if (++sigintCount > 1) {
+        logger.error('Interrupted again — exiting now, results discarded');
+        process.exit(130);
+      }
+      abortReason = 'sigint';
+      logger.info('Interrupted — finishing the current scenario, then writing results...');
       server.abort();
-      server.close();
-      process.exit(0);
+      const watchdog = setTimeout(() => {
+        logger.error('Scenario did not settle within 10s — exiting');
+        process.exit(130);
+      }, 10000);
+      watchdog.unref();
     });
 
     const { results, report } = await server.runScenarios(scenarios);
@@ -669,6 +859,7 @@ async function main() {
 
     const hasErrors = results.some(r => r.status === 'ERROR');
     const hasFails = report && report.stats.fail > 0;
+    if (abortReason === 'sigint') process.exit(130);
     process.exit(hasErrors || hasFails ? 1 : 0);
 
   } else {

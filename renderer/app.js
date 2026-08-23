@@ -3001,7 +3001,102 @@
     historyCompareOverlay.style.display = 'none';
   });
 
+  // ── Attestation account (login box) ───────────────────────────────
+  const acct = {
+    badge: document.getElementById('accountBadge'),
+    overlay: document.getElementById('accountOverlay'),
+    state: document.getElementById('accountState'),
+    signedIn: document.getElementById('accountSignedIn'),
+    form: document.getElementById('accountForm'),
+    server: document.getElementById('acctServer'),
+    email: document.getElementById('acctEmail'),
+    username: document.getElementById('acctUsername'),
+    certPath: document.getElementById('acctCertPath'),
+    msg: document.getElementById('accountMsg'),
+    pickCert: document.getElementById('acctPickCert'),
+    close: document.getElementById('accountCloseBtn'),
+    logout: document.getElementById('accountLogoutBtn'),
+    login: document.getElementById('accountLoginBtn'),
+    create: document.getElementById('accountCreateBtn'),
+  };
+  let acctCert = null;
+
+  async function refreshAccountBadge() {
+    if (!window.fuzzer.accountStatus) return;
+    const r = await window.fuzzer.accountStatus();
+    const st = r.ok ? r.status : { mode: 'anonymous' };
+    if (st.mode === 'account') {
+      acct.badge.textContent = `● ${st.username}`;
+      acct.badge.classList.add('signed-in');
+      acct.badge.title = `Signed in as ${st.username} (${st.email || ''})`;
+    } else {
+      acct.badge.textContent = 'Anonymous';
+      acct.badge.classList.remove('signed-in');
+      acct.badge.title = 'Not signed in — click to create an account';
+    }
+    return st;
+  }
+
+  function setAcctMsg(text, kind) {
+    acct.msg.textContent = text || '';
+    acct.msg.style.color = kind === 'err' ? 'var(--red)' : kind === 'ok' ? 'var(--green)' : 'var(--text-muted)';
+  }
+
+  async function openAccountModal() {
+    setAcctMsg('');
+    const st = await refreshAccountBadge();
+    const signedIn = st && st.mode === 'account';
+    acct.signedIn.style.display = signedIn ? 'block' : 'none';
+    acct.form.style.display = signedIn ? 'none' : 'flex';
+    acct.state.textContent = signedIn ? 'Signed in' : 'Anonymous';
+    acct.logout.style.display = signedIn ? 'inline-block' : 'none';
+    acct.login.style.display = (!signedIn && st && st.enrolled) ? 'inline-block' : 'none';
+    acct.create.style.display = signedIn ? 'none' : 'inline-block';
+    if (signedIn) {
+      acct.signedIn.innerHTML = `Signed in as <strong>${st.username}</strong> (${st.email || ''}).` +
+        (st.certExpiresAt ? `<br><span style="color:var(--text-muted); font-size:11px;">Certificate valid until ${new Date(st.certExpiresAt).toISOString().slice(0, 10)}.</span>` : '') +
+        `<br><span style="color:var(--text-muted); font-size:11px;">Runs you launch are attested to ${st.serverUrl || 'your server'}.</span>`;
+    } else if (st && st.serverUrl) {
+      acct.server.value = st.serverUrl;
+    }
+    acct.overlay.style.display = 'flex';
+  }
+  function closeAccountModal() { acct.overlay.style.display = 'none'; }
+
+  acct.badge.addEventListener('click', openAccountModal);
+  acct.close.addEventListener('click', closeAccountModal);
+  acct.overlay.addEventListener('click', (e) => { if (e.target === acct.overlay) closeAccountModal(); });
+
+  acct.pickCert.addEventListener('click', async () => {
+    const r = await window.fuzzer.accountPickCert();
+    if (r.ok && r.path) { acctCert = r.path; acct.certPath.textContent = r.path; }
+  });
+
+  acct.create.addEventListener('click', async () => {
+    const email = acct.email.value.trim();
+    const server = acct.server.value.trim();
+    if (!email || !server) { setAcctMsg('Enter both a server address and your work email.', 'err'); return; }
+    setAcctMsg('Creating account…');
+    const r = await window.fuzzer.accountCreate({ email, server, username: acct.username.value.trim() || undefined, serverCertPath: acctCert || undefined });
+    if (r.ok) { setAcctMsg(`Account created — signed in as ${r.username}.`, 'ok'); await refreshAccountBadge(); setTimeout(openAccountModal, 400); }
+    else setAcctMsg(r.error, 'err');
+  });
+
+  acct.login.addEventListener('click', async () => {
+    setAcctMsg('Signing in…');
+    const r = await window.fuzzer.accountLogin({ server: acct.server.value.trim() || undefined });
+    if (r.ok) { setAcctMsg(`Signed in as ${r.username}.`, 'ok'); await refreshAccountBadge(); setTimeout(openAccountModal, 400); }
+    else setAcctMsg(r.error, 'err');
+  });
+
+  acct.logout.addEventListener('click', async () => {
+    await window.fuzzer.accountLogout();
+    await refreshAccountBadge();
+    openAccountModal();
+  });
+
   // Init
   loadScenarios();
   refreshCompareMenu();
+  refreshAccountBadge();
 })();

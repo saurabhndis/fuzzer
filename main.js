@@ -417,6 +417,16 @@ ipcMain.handle('run-fuzzer', async (event, opts) => {
         return result;
       };
 
+      // Report this GUI run to the attestation server (if signed in) so it
+      // shows as a running test in the operator console. Best-effort.
+      let reporter = { stop() {} };
+      try {
+        reporter = require('./lib/run-reporter').startReporting({
+          runId: require('crypto').randomUUID(), protocol, targetHost: host,
+          targetPort: portNum, mode: 'client', requestedScenarios: scenarios.length,
+        });
+      } catch (_) {}
+
       try {
         for (let loop = 0; loop < loopCount; loop++) {
           if (activeClient.aborted) break;
@@ -435,6 +445,7 @@ ipcMain.handle('run-fuzzer', async (event, opts) => {
           }
         }
       } finally {
+        reporter.stop();
         if (activeClient) {
           // Suppress shutdown log messages from the GUI packet log
           const origInfo = activeClient.logger.info;
@@ -1902,6 +1913,56 @@ ipcMain.handle('close-firewall', () => {
     firewallWindow = null;
   }
   return { ok: true };
+});
+
+// --- Attestation account (login box) ---
+// Thin wrappers over lib/attestation-remote.js. Each returns
+// {ok, ...} | {ok:false, error} so the renderer branches on one shape.
+ipcMain.handle('account-status', async () => {
+  try {
+    return { ok: true, status: require('./lib/attestation-remote').accountStatus() };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+});
+
+ipcMain.handle('account-create', async (_event, opts) => {
+  try {
+    const remote = require('./lib/attestation-remote');
+    const res = await remote.enroll({
+      server: opts.server, username: opts.username, email: opts.email, serverCertPath: opts.serverCertPath,
+    });
+    return { ok: true, username: res.username, email: res.email };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+});
+
+ipcMain.handle('account-login', async (_event, opts) => {
+  try {
+    const res = await require('./lib/attestation-remote').login({ server: opts && opts.server });
+    return { ok: true, username: res.username, email: res.email };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+});
+
+ipcMain.handle('account-logout', async () => {
+  try {
+    require('./lib/attestation-remote').logout();
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+});
+
+ipcMain.handle('account-pick-cert', async () => {
+  const result = await dialog.showOpenDialog(mainWindow, {
+    title: 'Choose the attestation server certificate (server.pem)',
+    properties: ['openFile'],
+    filters: [{ name: 'PEM', extensions: ['pem', 'crt', 'cer'] }, { name: 'All', extensions: ['*'] }],
+  });
+  return result.canceled ? { ok: true, path: null } : { ok: true, path: result.filePaths[0] };
 });
 
 // --- PAN-OS Utility: make an HTTPS request to the firewall ---

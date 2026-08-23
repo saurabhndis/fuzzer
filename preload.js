@@ -79,6 +79,13 @@ contextBridge.exposeInMainWorld('fuzzer', {
   // Firewall monitor
   openFirewall: (dutConfig) => ipcRenderer.invoke('open-firewall', dutConfig),
   closeFirewall: () => ipcRenderer.invoke('close-firewall'),
+
+  // Attestation account (login box)
+  accountStatus: () => ipcRenderer.invoke('account-status'),
+  accountCreate: (opts) => ipcRenderer.invoke('account-create', opts),
+  accountLogin: (opts) => ipcRenderer.invoke('account-login', opts),
+  accountLogout: () => ipcRenderer.invoke('account-logout'),
+  accountPickCert: () => ipcRenderer.invoke('account-pick-cert'),
 });
 
 // PAN-OS Firewall API (used by the firewall popup window)
