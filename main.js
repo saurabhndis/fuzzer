@@ -1861,8 +1861,10 @@ ipcMain.handle('run-cv', async (_event, opts) => {
 // Firewall (PAN-OS) Monitor — embedded from firewall project
 // ═══════════════════════════════════════════════════════════════════════════════
 
-// Disable certificate validation for self-signed firewall certs
-process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
+// Firewall management interfaces use self-signed certs; every request to them
+// passes `rejectUnauthorized: false` explicitly (panosRequest, panos-poller).
+// Never disable TLS validation process-wide: the attestation client in this
+// same process relies on real verification against the pinned server cert.
 
 function createFirewallWindow(dutConfig) {
   if (firewallWindow && !firewallWindow.isDestroyed()) {
