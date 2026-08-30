@@ -96,6 +96,64 @@ test('malformed input yields a clean malformed error, not a throw', () => {
   assert.strictEqual(res.errors[0].code, 'malformed');
 });
 
+// ── Issued client-cert validation (enroll refuses foreign certs) ──────
+
+// A leaf certificate over `publicKeyPem`, signed by `ca` — what /enroll
+// returns, or what a wrong/compromised server might return.
+function makeLeafCert(ca, subjectCN, publicKeyPem) {
+  const OID_ED25519 = Buffer.from([0x06, 0x03, 0x2b, 0x65, 0x70]);
+  const algo = X.derSequence([OID_ED25519]);
+  const issuer = X.derSequence([X.buildRDN(X.OID.COMMON_NAME, 'Test Attestation CA')]);
+  const subject = X.derSequence([X.buildRDN(X.OID.COMMON_NAME, subjectCN)]);
+  const spki = crypto.createPublicKey(publicKeyPem).export({ type: 'spki', format: 'der' });
+  const tbs = X.derSequence([
+    X.derExplicit(0, X.derInteger(2)),
+    X.derInteger(crypto.randomBytes(8)),
+    algo, issuer,
+    X.derSequence([X.derUTCTime('250101000000Z'), X.derUTCTime('350101000000Z')]),
+    subject, spki,
+  ]);
+  const sig = crypto.sign(null, tbs, ca.privateKeyPem);
+  const der = X.derSequence([tbs, algo, X.derBitString(sig)]);
+  return `-----BEGIN CERTIFICATE-----\n${der.toString('base64').replace(/(.{64})/g, '$1\n').replace(/\n$/, '')}\n-----END CERTIFICATE-----\n`;
+}
+
+const enrollee = crypto.generateKeyPairSync('ed25519', {
+  publicKeyEncoding: { type: 'spki', format: 'pem' },
+  privateKeyEncoding: { type: 'pkcs8', format: 'pem' },
+});
+
+test('a cert issued by the pinned server for our key is accepted', () => {
+  const certPem = makeLeafCert(server, 'alice', enrollee.publicKey);
+  R.validateIssuedCert(certPem, { anchorPem: server.certPem, publicKeyPem: enrollee.publicKey, username: 'alice' });
+});
+
+test('a cert signed by a different CA is refused', () => {
+  const rogue = makeServerCert();
+  const certPem = makeLeafCert(rogue, 'alice', enrollee.publicKey);
+  assert.throws(
+    () => R.validateIssuedCert(certPem, { anchorPem: server.certPem, publicKeyPem: enrollee.publicKey, username: 'alice' }),
+    /not signed by the trusted server certificate/
+  );
+});
+
+test('a cert wrapping a different key is refused', () => {
+  const otherKey = crypto.generateKeyPairSync('ed25519', { publicKeyEncoding: { type: 'spki', format: 'pem' }, privateKeyEncoding: { type: 'pkcs8', format: 'pem' } });
+  const certPem = makeLeafCert(server, 'alice', otherKey.publicKey);
+  assert.throws(
+    () => R.validateIssuedCert(certPem, { anchorPem: server.certPem, publicKeyPem: enrollee.publicKey, username: 'alice' }),
+    /different key than ours/
+  );
+});
+
+test('a cert naming a different user is refused', () => {
+  const certPem = makeLeafCert(server, 'mallory', enrollee.publicKey);
+  assert.throws(
+    () => R.validateIssuedCert(certPem, { anchorPem: server.certPem, publicKeyPem: enrollee.publicKey, username: 'alice' }),
+    /different user/
+  );
+});
+
 // ── compareRuns ───────────────────────────────────────────────────────
 
 function detail(serial, prNumber, over = {}) {
